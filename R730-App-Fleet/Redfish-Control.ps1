@@ -33,15 +33,33 @@ function Convert-NativePatch([string]$Kind,$Values) {
         switch ($Kind) {
             HPE {if ($key -eq 'ThermalConfiguration' -and $flat[$key] -in @('OptimalCooling','IncreasedCooling','MaximumCooling','EnhancedCooling')) {continue};if ($key -eq 'FanPercentMinimum' -and $flat[$key] -is [ValueType] -and $flat[$key] -ge 0 -and $flat[$key] -le 100 -and $flat[$key] -eq [math]::Floor($flat[$key])) {continue};throw 'Invalid HPE cooling patch'}
             Supermicro {if ($key -ne 'Mode' -or $flat[$key] -notmatch '^[A-Za-z][A-Za-z0-9]{0,39}$') {throw 'Invalid Supermicro cooling patch'}}
+            DellMinimum {if($key -ne 'ThermalSettings.1.MinimumFanSpeed' -or $flat[$key] -isnot [ValueType] -or $flat[$key] -is [bool] -or ($flat[$key] -ne 255 -and ($flat[$key] -lt 0 -or $flat[$key] -gt 100)) -or $flat[$key] -ne [math]::Floor($flat[$key])){throw 'Invalid Dell minimum fan patch'}}
             RedfishOverride {if ($key -ne 'FansFullSpeedOverrideEnable' -or $flat[$key] -isnot [bool]) {throw 'Invalid Redfish cooling patch'}}
             default {throw 'Unknown cooling control type'}
         }
     }
+    if ($Kind -eq 'DellMinimum') {return @{Attributes=$flat}}
     if ($Kind -eq 'HPE') {return @{Oem=@{Hpe=$flat}}};return $flat
 }
 function Test-NativeValues([string]$Kind,$Resource,$Values) {
+    if ($Kind -eq 'DellMinimum') {$resource=$Resource.Attributes}
     if ($Kind -eq 'HPE') {$resource=$Resource.Oem.Hpe}
     if ($Values -is [Collections.IDictionary]) {$keys=@($Values.Keys)} else {$keys=@($Values.PSObject.Properties.Name)}
     foreach($key in $keys) {if ($null -eq $resource.$key -or $resource.$key -ne $Values.$key) {return $false}}
     return $true
+}
+
+function Get-DellMinimumPlan($Resource,$Requested,[string]$Path) {
+    if($Resource.'@odata.type' -notmatch '^#DellAttributes\.') {throw 'Dell attribute resource is unavailable'}
+    $a=$Resource.Attributes
+    $original=Get-HpeNumber $a.'ThermalSettings.1.MinimumFanSpeed'
+    $low=Get-HpeNumber $a.'ThermalSettings.1.MFSMinimumLimit'
+    $high=Get-HpeNumber $a.'ThermalSettings.1.MFSMaximumLimit'
+    $value=Get-HpeNumber $Requested
+    foreach($number in @($original,$low,$high,$value)){if($null -eq $number -or $number -ne [math]::Floor($number)){throw 'Dell fan settings/limits are missing or invalid'}}
+    if($low -lt 0 -or $high -gt 100 -or $low -gt $high -or $high -lt 1){throw 'Dell minimum fan limits are unavailable'}
+    if($original -ne 255 -and ($original -lt 0 -or $original -gt 100)){throw 'Dell original minimum fan setting is invalid'}
+    if($value -lt $low -or $value -gt $high -or ($original -ne 255 -and $value -lt $original)){throw 'Choose a fan floor within the advertised limits and no lower than the existing floor'}
+    if($Path -ne '/redfish/v1/Managers/System.Embedded.1/Attributes'){throw 'Unexpected Dell attribute resource'}
+    return @{Kind='DellMinimum';Path=$Path;Before=@{'ThermalSettings.1.MinimumFanSpeed'=[int]$original};After=@{'ThermalSettings.1.MinimumFanSpeed'=[int]$value}}
 }

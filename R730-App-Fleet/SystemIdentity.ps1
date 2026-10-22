@@ -1,4 +1,4 @@
-# Display-only system inventory. This never selects or changes a cooling protocol.
+# Read-only FRU identity. Control eligibility is evaluated separately.
 function Get-TargetSystemSerial {
     param([string]$Raw)
     $blocks=[regex]::Matches($Raw,'(?ims)^\s*FRU Device Description\s*:\s*([^\r\n]+)\r?\n(.*?)(?=^\s*FRU Device Description\s*:|\z)')
@@ -17,7 +17,7 @@ function Convert-TargetIdentity {
     $blocks=[regex]::Matches($Raw,'(?ims)^\s*FRU Device Description\s*:\s*([^\r\n]+)\r?\n(.*?)(?=^\s*FRU Device Description\s*:|\z)')
     if ($blocks.Count) {
         $system=@($blocks | Where-Object { $_.Groups[1].Value -match '\(ID\s+0\)' })
-        $body=if($system.Count){$system[0].Groups[2].Value}else{$blocks[0].Groups[2].Value}
+        $body=if($system.Count){$system[0].Groups[2].Value}else{''}
     }
     $model='Unknown model';$manufacturer='Unknown manufacturer'
     if ($body -match '(?im)^\s*Product Name\s*:\s*([^\r\n]+)') { $model=$Matches[1].Trim() }

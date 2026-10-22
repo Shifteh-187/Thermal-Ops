@@ -18,3 +18,9 @@ $tokens=$null;$errors=$null
 [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\R730-App-Fleet\HpeMonitor.ps1'),[ref]$tokens,[ref]$errors) | Out-Null
 if ($errors.Count) {throw ($errors | Out-String)}
 'PASS: HPE mapping, units, health thresholds, missing data, power domains and worker syntax.'
+
+$thermal.Fans[0].Reading=0
+if((Convert-HpeTelemetry $system $thermal $power).ReportedHealth -ne 'ATTENTION'){throw 'Zero fan not flagged'}
+$thermal.Fans[0].Reading=30;$thermal.Temperatures[0].ReadingCelsius=$null
+if((Convert-HpeTelemetry $system $thermal $power).ReportedHealth -ne 'DEGRADED'){throw 'Partial temperatures accepted for native control'}
+'PASS: zero-fan and partially missing temperature guards.'

@@ -2,19 +2,35 @@
 
 Made by **Chris Ramsay, 2026**. Windows cooling control and monitoring with a dark dashboard, live temperature trends, individual server power graphs, fleet health and total power usage.
 
+![Thermal Ops dashboard](docs/dashboard.png)
+
+## Multiple servers / fan-farm management
+
+Add multiple iDRAC servers by IP address or hostname. Each server has its own saved login, monitoring worker, temperature and power graphs, and cooling mode. **All Systems** combines health status and current reported power; **Stop all / restore auto** requests an orderly stop for owned controllers. Compatibility is checked independently for every server.
+
+For remote servers with GPUs cooled by chassis fans, run the R730 curve controller on that server so it can read the matching local GPUs. Server-only mode requires confirmation that there are no chassis-cooled GPUs. The dashboard can follow an existing controller feed.
+
 ## Downloads
 
 Use the Windows installer from **Releases** for the graphical app. The console ZIP keeps the original ASCII PowerShell dashboard available. The installer is unsigned; Windows may display a publisher warning.
 
 ## Hardware support
 
-- **Dell R730:** IPMI fan control with the existing temperature curves, emergency thresholds, telemetry checks and restoration of automatic control on orderly exit.
+- **Dell iDRAC / IPMI:** general temperature, fan and whole-server power monitoring without requiring the R730's six-fan/two-CPU layout. Missing values stay unknown. Unsupported model/firmware combinations automatically remain read-only, even if Start cooling was requested.
+- **Dell R730 manual curves:** limited to the recorded model/controller fingerprint (IPMI revision 2.86, auxiliary 00065656). Other R730 firmware remains monitoring-only until verified; no firmware downgrades are recommended.
+- **Dell iDRAC / Redfish:** capability-dependent minimum-fan control that retains Dell automatic cooling. Choose **Dell iDRAC (Redfish fan minimum)** when adding a server. On Connection select **DellMinimum**, enable **Dell min fan %**, and choose a value within the firmware's advertised bounds and no lower than the existing floor. Original settings are saved, read back, and restored on stop. This adapter is fixture-tested, not physically certified across iDRAC generations.
 - **HPE / other Redfish servers:** monitoring and capability-dependent controls. HPE thermal profiles and minimum fan settings require the firmware to expose them. These adapters have offline fixture tests; they have not been validated on physical HPE hardware.
 - **Local PCs:** LibreHardwareMonitor sensor discovery and supported fan outputs. Select and verify the physical fan channels and temperature sources before enabling control. Not every GPU, motherboard, USB controller or laptop exposes writable controls.
 
 See [hardware support](R730-App-Fleet/HARDWARE-SUPPORT.md), [HPE support](R730-App-Fleet/HPE-SUPPORT.md) and [GPU compatibility](R730-App-Fleet/GPU-COMPATIBILITY.md).
 
 The GUI stores separate server credentials protected for the current Windows user. Closing the window hides it in the tray. Use **Exit** to stop controllers and request restoration of automatic cooling. Configure startup behaviour only after verifying your sensors and cooling response.
+
+## Hardware support requests
+
+For an unsupported system, start **Monitor only**, wait for detection, and click **Hardware support request**. Review the report, choose **Copy report**, then **Open GitHub issue** and paste it into the template. The report includes model, firmware, sensor inventory and exposed cooling capabilities. It excludes credentials, IP addresses, hostnames, service tags, GPU identifiers and raw logs. Nothing is posted automatically and no fan-control probe is issued.
+
+See [iDRAC compatibility](R730-App-Fleet/IDRAC-COMPATIBILITY.md) for version research, support limits and the evidence needed to add another control profile.
 
 ## Console version
 
@@ -27,7 +43,7 @@ $env:THERMAL_OPS_IPMITOOL = 'C:\Tools\IPMI\ipmitool.exe'
 .\R730-FanController-Smart.ps1
 ```
 
-The password is requested securely when it is not supplied through `THERMAL_OPS_IDRAC_PASSWORD`. Default mode monitors without issuing fan control commands. After checking telemetry, use `-Live` to enable control. `R730-FanController.ps1` provides the original curve implementation; the Smart variant adds smoothing. Both preserve the ASCII dashboard and R730 thresholds.
+The password is requested securely when it is not supplied through `THERMAL_OPS_IDRAC_PASSWORD`. Default mode monitors without issuing fan control commands. After checking telemetry, use `-Live` to enable control. `R730-FanController.ps1` provides the original curve implementation; the Smart variant adds smoothing. Both preserve the ASCII dashboard and R730 thresholds. Live console control uses the same recorded firmware gate as the GUI; these scripts do not become generic server controllers.
 
 Run only one controller against a physical server. These console scripts are R730-specific; never apply their raw commands to an unverified model. Abrupt termination, power loss or an operating system crash can prevent software restoration: keep independent hardware temperature protection enabled and check the result of exit restoration.
 
@@ -36,6 +52,8 @@ Offline checks (no hardware writes):
 ```powershell
 .\Test-R730FanController.ps1
 .\Test-R730SmartControl.ps1
+.\Installer\Test-DellCompatibility.ps1
+.\Installer\Test-DellRedfish.ps1
 ```
 
 ## Build the Windows app
@@ -46,7 +64,7 @@ Requires Windows, .NET Framework 4.7.2 or newer, Windows PowerShell 5.1 and Inno
 .\Installer\Build.ps1 -InnoCompiler 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
 
-Output: `Dist/Thermal-Ops-Setup-1.2.2.exe`. The dependency archive includes upstream binaries, licence notices and required corresponding source archives. LibreHardwareMonitor 0.9.6 comes from its official GitHub release; PawnIO 2.1.0 is its bundled driver installer. The Windows ipmitool 1.8.19 build is distributed by Danny Nieuwenhuis, with provenance and hashes in `Installer/Payload/Tools/IPMI`. The optional PawnIO driver requires a separate installation with administrator approval.
+Output: `Dist/Thermal-Ops-Setup-1.3.0.exe`. The dependency archive includes upstream binaries, licence notices and required corresponding source archives. LibreHardwareMonitor 0.9.6 comes from its official GitHub release; PawnIO 2.1.0 is its bundled driver installer. The Windows ipmitool 1.8.19 build is distributed by Danny Nieuwenhuis, with provenance and hashes in `Installer/Payload/Tools/IPMI`. The optional PawnIO driver requires a separate installation with administrator approval.
 
 ## Licence
 

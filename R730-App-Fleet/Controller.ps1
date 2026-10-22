@@ -370,7 +370,7 @@ function Invoke-Ipmi {
 }
 function Invoke-IpmiRaw {
     param([string[]]$Arguments)
-    if ($Live) { $null = Invoke-Ipmi (@('raw') + $Arguments) }
+    if ($Live) { if(-not $TargetIdentity.ManualControlAllowed){throw 'Raw fan control denied by hardware compatibility policy'}; $null = Invoke-Ipmi (@('raw') + $Arguments) }
 }
 function Set-ManualFanMode { Invoke-IpmiRaw @('0x30','0x30','0x01','0x00') }
 function Set-AutoFanMode { Invoke-IpmiRaw @('0x30','0x30','0x01','0x01') }
@@ -511,7 +511,7 @@ function Write-AppStatus {
     param([string]$State, [string]$Message, $Ipmi=$null, $Gpu=$null)
     if (-not $StatusPath) { return }
     $data=[ordered]@{Time=(Get-Date -Format o); State=$State; Message=$Message;
-        Live=[bool]$Live; Smart=[bool]$Smart; Fan=$LastFan; Ipmi=$Ipmi; Gpu=$Gpu;
+        Live=[bool]$Live; ManagementProvider='Dell'; Smart=[bool]$Smart; Fan=$LastFan; Ipmi=$Ipmi; Gpu=$Gpu;
         ProfileName=$ProfileName; GpuMode=$GpuMode; TargetIdentity=$TargetIdentity; IdracHost=$IdracHost; CooldownRemaining=$CooldownRemaining; UptimeSeconds=[int]$Clock.Elapsed.TotalSeconds}
     $json=$data | ConvertTo-Json -Depth 8 -Compress
     # Keep UI/logging failures from interrupting cooling or restoration.
@@ -524,6 +524,7 @@ if ($Smart) { . (Join-Path $PSScriptRoot 'R730-SmartControl.ps1') }
 
 . (Join-Path $PSScriptRoot 'GpuProviders.ps1')
 . (Join-Path $PSScriptRoot 'SystemIdentity.ps1')
+. (Join-Path $PSScriptRoot 'DellCompatibility.ps1')
 if ($LibraryOnly) { return }
 try {
     Write-AppStatus 'Starting' 'Checking configuration and server'
@@ -540,8 +541,8 @@ try {
     }
     $ProfileName=[string]$settings.ProfileName
     $GpuMode=[string]$settings.GpuMode
-    if ($GpuMode -notin @('Local','ServerOnly') -or $settings.GpuSourceConfirmed -ne $true) {
-        throw 'Configure and confirm this server profile GPU source before monitoring or cooling'
+    if ($Live -and ($GpuMode -notin @('Local','ServerOnly') -or $settings.GpuSourceConfirmed -ne $true)) {
+        $GpuMode='Unconfigured'
     }
     $IdracHost=$IdracHost.Trim().TrimEnd('.').ToLowerInvariant()
     Add-Type -AssemblyName System.Security
@@ -557,6 +558,19 @@ try {
         $IpmiExe=$bundledIpmi
     }
     $IpmiExe=(Get-Command $IpmiExe -CommandType Application -ErrorAction Stop).Source
+    # Confirm model before issuing R730-specific raw commands.
+    # FRU inventory is slower than routine telemetry on this iDRAC.
+    $routineTimeout=$CommandTimeoutSeconds
+    try {
+        $CommandTimeoutSeconds=25
+        $model=Invoke-Ipmi @('fru','print')
+    } catch { $model='' } finally { $CommandTimeoutSeconds=$routineTimeout }
+    $TargetIdentity=Convert-TargetIdentity $model
+    $mcInfo='';try{$mcInfo=Invoke-Ipmi @('mc','info')}catch{}
+    $compatibility=Get-DellCompatibility $TargetIdentity $mcInfo
+    foreach($property in $compatibility.PSObject.Properties){$TargetIdentity | Add-Member -NotePropertyName $property.Name -NotePropertyValue $property.Value -Force}
+    if(-not $compatibility.ManualControlAllowed){$Live=[switch]$false;$Smart=[switch]$false;$TargetIdentity.CoolingProfile='Monitoring only'}
+    if($Live -and ($GpuMode -notin @('Local','ServerOnly') -or $settings.GpuSourceConfirmed -ne $true)){throw 'Configure and confirm the GPU source before cooling'}
     # Only live workers claim the control lock; read-only monitoring is permitted.
     $key=$IdracHost -replace '[^a-zA-Z0-9.-]','_'
     if ($Live) {
@@ -564,15 +578,6 @@ try {
     try { $OwnMutex=$Mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $OwnMutex=$true }
     if (-not $OwnMutex) { throw 'Another controller instance is running for this iDRAC' }
     }
-    # Confirm model before issuing R730-specific raw commands.
-    # FRU inventory is slower than routine telemetry on this iDRAC.
-    $routineTimeout=$CommandTimeoutSeconds
-    try {
-        $CommandTimeoutSeconds=25
-        $model=Invoke-Ipmi @('fru','print')
-    } finally { $CommandTimeoutSeconds=$routineTimeout }
-    $TargetIdentity=Convert-TargetIdentity $model
-    if ($TargetIdentity.Model -ne 'PowerEdge R730') { throw 'System FRU does not identify a PowerEdge R730; manual control is unsupported' }
     $targetSerial=Get-TargetSystemSerial $model
     if($Live){
         if([string]::IsNullOrWhiteSpace($targetSerial) -or $targetSerial -match '^(Unknown|None|Default|To be filled)'){
@@ -584,11 +589,21 @@ try {
         try{$OwnPhysicalMutex=$PhysicalMutex.WaitOne(0)}catch [Threading.AbandonedMutexException]{$OwnPhysicalMutex=$true}
         if(-not $OwnPhysicalMutex){throw 'This physical server already has a live worker under another profile/address'}
     }
-    if($GpuMode -eq 'Local'){
+    if($Live -and $GpuMode -eq 'Local'){
         $localSerial=[string](Get-CimInstance -ClassName Win32_BIOS -OperationTimeoutSec 4 -ErrorAction Stop).SerialNumber
         if([string]::IsNullOrWhiteSpace($targetSerial) -or [string]::IsNullOrWhiteSpace($localSerial) -or
             $targetSerial -match '^(Unknown|None|Default|To be filled)' -or $targetSerial.Trim() -ne $localSerial.Trim()){
             throw 'Local GPU telemetry does not match this server identity. Remote chassis-cooled GPUs need an on-server controller; server-only mode requires no chassis-cooled GPUs.'
+        }
+    }
+    $MonitorLocalGpu=$false
+    if(-not $Live){
+        $Smart=[switch]$false
+        if($GpuMode -eq 'Local' -and $settings.GpuSourceConfirmed -eq $true){
+            try{
+                $localSerial=[string](Get-CimInstance -ClassName Win32_BIOS -OperationTimeoutSec 4 -ErrorAction Stop).SerialNumber
+                $MonitorLocalGpu=-not [string]::IsNullOrWhiteSpace($targetSerial) -and $targetSerial -notmatch '^(Unknown|None|Default|To be filled)' -and $targetSerial.Trim() -eq $localSerial.Trim()
+            }catch{}
         }
     }
     Clear-Host
@@ -596,6 +611,15 @@ try {
     for ($iteration=0; $iteration -lt $Iterations; $iteration++) {
         if ($StopPath -and (Test-Path -LiteralPath $StopPath)) { break }
         $sampleStart=$Clock.Elapsed.TotalSeconds
+        if(-not $Live){
+            $Ipmi=Convert-DellMonitorTelemetry (Invoke-Ipmi @('sensor'))
+            $LastFan=-1;$Gpu=$null;$gpuNote='Server sensors only; local GPUs are not mapped to this target'
+            if($MonitorLocalGpu){try{$Gpu=Get-GpuTelemetry;$gpuNote='Matching local GPUs monitored'}catch{$gpuNote='Local GPU telemetry unavailable'}}
+            if($Clock.Elapsed.TotalSeconds-$sampleStart -gt $TelemetryBudgetSeconds){throw 'Telemetry collection exceeded freshness budget'}
+            Write-AppStatus 'MONITORING' ($compatibility.Reason+' | '+$gpuNote) $Ipmi $Gpu
+            if($iteration+1 -lt $Iterations){foreach($tick in 1..10){if($StopPath -and (Test-Path -LiteralPath $StopPath)){break};Start-Sleep -Milliseconds 200}}
+            continue
+        }
         $Ipmi=Get-IpmiTelemetry
         $Gpu=if($GpuMode -eq 'Local'){Get-GpuTelemetry}else{
             [pscustomobject]@{Temp=$null;Util=$null;Power=$null;Count=0;Cards=@();OptionalMissing=$false;Warning='Server sensors only: chassis-cooled GPUs excluded by profile confirmation'}

@@ -1,4 +1,4 @@
-# Thermal Ops hardware support — 1.2.2
+# Thermal Ops hardware support — 1.3.0
 
 Made by Chris Ramsay 2026.
 
@@ -6,7 +6,7 @@ Thermal Ops now has separate paths for server BMCs and local gaming-PC/controlle
 
 | Technology / hardware | Implemented in this build | Verification |
 |---|---|---|
-| Dell PowerEdge R730 / iDRAC OEM IPMI | Existing temperature curves, smart option, fan/RPM checks, emergency handling and Dell automatic restoration | Existing R730 engine retained; no new live fan writes during this work |
+| Dell PowerEdge R730 / iDRAC OEM IPMI | Existing temperature curves, smart option, fan/RPM checks, emergency handling and Dell automatic restoration | Existing R730 engine retained behind the recorded controller/firmware fingerprint; no new live fan writes during this work |
 | HPE iLO Redfish | Monitoring, native cooling profiles, optional exposed minimum fan percentage, original-setting recovery and read-back | Simulated transport and telemetry fixtures; physical HPE testing outstanding |
 | Supermicro Redfish | Monitoring and advertised native FanMode values | Planning/validation fixtures; physical testing outstanding |
 | Standard Redfish ThermalSubsystem | Monitoring and full-speed override when the resource exposes `FansFullSpeedOverrideEnable` | Capability planning tests; firmware dependent |
@@ -18,6 +18,10 @@ Thermal Ops now has separate paths for server BMCs and local gaming-PC/controlle
 | Laptop embedded controllers / ACPI / Dell SMM | Not implemented | Model-specific protocols are required |
 | Linux hwmon/sysfs and OpenBMC D-Bus/PID configuration | Not implemented by this Windows app | Requires a host-side agent and platform-specific permissions |
 | RGB-only hubs and passive splitters | No independent fan control unless a supported upstream fan header controls them | RGB discovery does not imply fan control |
+
+## Dell iDRAC compatibility
+
+See [iDRAC compatibility](IDRAC-COMPATIBILITY.md) for the recorded R730 firmware gate, generic IPMI monitoring and capability-dependent Dell Redfish fan minimum. Other model/firmware combinations do not receive R730 raw fan commands. Use **Hardware support request** after monitoring to prepare a reviewable GitHub report. Multiple server profiles can run independently by IP with separate credentials.
 
 ## Local PC / standalone controller setup
 
@@ -58,4 +62,4 @@ Setup enables **Start Thermal Ops when I sign in to Windows** by default. It cre
 
 ## Bundled management tools
 
-Version 1.2.2 includes the Windows IPMI runtime in Tools/IPMI and the HPE/iLO/Redfish backend. The built-in IPMI transport is selected by default. A custom executable can be selected by clearing Use built-in IPMI tool on Connection. No HPE CLI is required. Bundled IPMI was checked with a read-only live query; HPE remains validated by fixtures rather than physical hardware.
+Version 1.3.0 includes the Windows IPMI runtime in Tools/IPMI and the HPE/iLO/Redfish backend. The built-in IPMI transport is selected by default. A custom executable can be selected by clearing Use built-in IPMI tool on Connection. No HPE CLI is required. Bundled IPMI was checked with a read-only live query; HPE remains validated by fixtures rather than physical hardware.

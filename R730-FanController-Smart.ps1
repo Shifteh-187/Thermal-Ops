@@ -502,6 +502,8 @@ function Test-FanResponse {
 }
 
 . (Join-Path $PSScriptRoot 'R730-SmartControl.ps1')
+. (Join-Path $PSScriptRoot 'SystemIdentity.ps1')
+. (Join-Path $PSScriptRoot 'DellCompatibility.ps1')
 if ($LibraryOnly) { return }
 if ([string]::IsNullOrWhiteSpace($IdracHost)) { throw 'Set THERMAL_OPS_IDRAC_HOST before starting.' }
 if ([string]::IsNullOrEmpty($IdracPass)) {
@@ -527,7 +529,9 @@ try {
         $CommandTimeoutSeconds=25
         $model=Invoke-Ipmi @('fru','print')
     } finally { $CommandTimeoutSeconds=$routineTimeout }
-    if ($model -notmatch '(?im)^\s*Product Name\s*:\s*PowerEdge R730\s*$') { throw 'FRU does not identify a PowerEdge R730' }
+    $identity=Convert-TargetIdentity $model
+    if($identity.Model -ne 'PowerEdge R730'){throw 'Console curves require a PowerEdge R730; use the GUI for other server monitoring'}
+    if($Live){$compatibility=Get-DellCompatibility $identity (Invoke-Ipmi @('mc','info'));if(-not $compatibility.ManualControlAllowed){throw $compatibility.Reason}}
     Clear-Host
     try { [Console]::CursorVisible=$false } catch {}
     for ($iteration=0; $iteration -lt $Iterations; $iteration++) {

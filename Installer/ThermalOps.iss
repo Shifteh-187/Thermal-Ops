@@ -1,5 +1,5 @@
 #define AppName "Thermal Ops"
-#define AppVersion "1.2.2"
+#define AppVersion "1.3.0"
 [Setup]
 #ifdef ThermalOpsSmoke
 AppId={{EAE89B89-1B1E-48DE-8553-4271EF508553}
@@ -25,7 +25,7 @@ MinVersion=10.0
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
 OutputDir=..\Dist
-OutputBaseFilename=Thermal-Ops-Setup-1.2.2
+OutputBaseFilename=Thermal-Ops-Setup-1.3.0
 SetupIconFile=..\R730-App-Fleet\Assets\ThermalOps.ico
 UninstallDisplayIcon={app}\ThermalOps.exe
 WizardStyle=modern
@@ -42,7 +42,7 @@ Name: startup; Description: "Start Thermal Ops when I sign in to Windows"; Group
 Name: importprofiles; Description: "Import saved profiles from an existing portable copy (same Windows user)"; GroupDescription: "Existing setup:"; Flags: unchecked
 
 [Files]
-Source: "Payload\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "settings.json,bundle-test.txt,self-test.txt,profile-test.txt"
+Source: "Payload\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "settings.json,*-test.txt,*-preview.png,preview.png,Profiles\*,Runs\*,*.jsonl"
 Source: "Payload\settings.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
 
 [Icons]

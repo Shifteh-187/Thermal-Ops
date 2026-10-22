@@ -24,6 +24,7 @@ function Get-Resource([string]$Path) {
 function Set-NativeValues($Record,$Values) {
     if($Record.Serial -and [string](Get-Resource $systemPath).SerialNumber -ne [string]$Record.Serial){throw "Hardware serial mismatch before cooling write"}
     $current=Get-Resource $Record.Path
+    if($Record.Kind -eq 'DellMinimum' -and -not $restoring){$null=Get-DellMinimumPlan $current $Values.'ThermalSettings.1.MinimumFanSpeed' $Record.Path}
     $requestHeaders=@{};foreach($key in $headers.Keys){$requestHeaders[$key]=$headers[$key]}
     if ($current.'@odata.etag') {$requestHeaders['If-Match']=[string]$current.'@odata.etag'}
     $body=Convert-NativePatch $Record.Kind $Values | ConvertTo-Json -Depth 6 -Compress
@@ -54,9 +55,19 @@ try {
     if(@($systems.Members).Count -ne 1 -or @($chassis.Members).Count -ne 1){throw 'Select an endpoint with one system and one chassis'}
     $systemPath=$systems.Members[0].'@odata.id';$chassisPath=$chassis.Members[0].'@odata.id';$system=Get-Resource $systemPath;$enclosure=Get-Resource $chassisPath
     $manufacturer=[string]$system.Manufacturer
+    if($config.ManagementProvider -eq 'DellRedfish' -and $manufacturer -notmatch '^(Dell|Dell Inc\.?|Dell EMC)$'){throw 'Dell identity mismatch'}
     if($config.ManagementProvider -eq 'HPE' -and $manufacturer -notmatch 'HPE|Hewlett|HP\b'){throw 'HPE identity mismatch'}
     if($config.ManagementProvider -eq 'Supermicro' -and $manufacturer -notmatch 'Supermicro'){throw 'Supermicro identity mismatch'}
     $identity=@{Manufacturer=$manufacturer;Model=[string]$system.Model;Source='Redfish';CoolingProfile='BMC automatic / monitor only'}
+    $identity.FirmwareRevision='Unknown';$identity.FirmwareSource='Redfish Manager';$identity.IdracGeneration='Unknown'
+    if($manufacturer -match '^Dell' -and $root.Managers.'@odata.id'){
+        try{
+            $managers=Get-Resource $root.Managers.'@odata.id'
+            if(@($managers.Members).Count -gt 16){throw 'Too many managers'}
+            $bmc=@(foreach($member in $managers.Members){$candidate=Get-Resource $member.'@odata.id';if($candidate.ManagerType -eq 'BMC'){$candidate}})
+            if($bmc.Count -eq 1){$identity.FirmwareRevision=[string]$bmc[0].FirmwareVersion;$identity.IdracGeneration=[string]$bmc[0].Model}
+        }catch{}
+    }
     if(-not $manufacturer -or -not $system.Model){throw 'Hardware identity unavailable'}
     if($Live -or (Test-Path -LiteralPath $recoveryPath)){
         if(-not $system.SerialNumber -or [string]$system.SerialNumber -match '^(Unknown|None|Default|To be filled)'){throw 'A usable hardware serial is required for cooling writes'}
@@ -67,20 +78,37 @@ try {
     $thermal=$null;$sub=$null;$mode=$null
     if($thermalPath){$thermal=Get-Resource $thermalPath};if($subPath){$sub=Get-Resource $subPath}
     if($manufacturer -match 'Supermicro' -and $root.Managers.'@odata.id'){$managers=Get-Resource $root.Managers.'@odata.id';if(@($managers.Members).Count -eq 1){$manager=Get-Resource $managers.Members[0].'@odata.id';$modePath=[string]$manager.Oem.Supermicro.FanMode.'@odata.id';if(-not $modePath){$modePath=([string]$managers.Members[0].'@odata.id').TrimEnd('/')+'/Oem/Supermicro/FanMode'};try{$mode=Get-Resource $modePath}catch{$modePath=''}}}
-    $available=@();if($thermal.Oem.Hpe.ThermalConfiguration){$available+='HPE thermal profile';if($null -ne $thermal.Oem.Hpe.FanPercentMinimum){$available+='HPE minimum fan %'}};if($mode.Mode){$available+='Supermicro fan mode'};if($sub.FansFullSpeedOverrideEnable -is [bool]){$available+='Redfish full-speed override'}
+    $dellAttributes=$null;$dellPath=''
+    if($manufacturer -match '^(Dell|Dell Inc\.?|Dell EMC)$'){
+        try{$dellPath='/redfish/v1/Managers/System.Embedded.1/Attributes';$dellAttributes=Get-Resource $dellPath}catch{$dellPath=''}
+    }
+    $identity.NativeMinimumAvailable=$false
+    if($dellAttributes){
+        $identity.NativeMinimum=$dellAttributes.Attributes.'ThermalSettings.1.MinimumFanSpeed'
+        $identity.NativeMinimumLimit=$dellAttributes.Attributes.'ThermalSettings.1.MFSMinimumLimit'
+        $identity.NativeMaximumLimit=$dellAttributes.Attributes.'ThermalSettings.1.MFSMaximumLimit'
+        try{$null=Get-DellMinimumPlan $dellAttributes 100 $dellPath;$identity.NativeMinimumAvailable=$true}catch{
+            try{$null=Get-DellMinimumPlan $dellAttributes $identity.NativeMaximumLimit $dellPath;$identity.NativeMinimumAvailable=$true}catch{}
+        }
+    }
+    $available=@();if($identity.NativeMinimumAvailable){$available+='Dell minimum fan floor (automatic cooling retained)'};if($thermal.Oem.Hpe.ThermalConfiguration){$available+='HPE thermal profile';if($null -ne $thermal.Oem.Hpe.FanPercentMinimum){$available+='HPE minimum fan %'}};if($mode.Mode){$available+='Supermicro fan mode'};if($sub.FansFullSpeedOverrideEnable -is [bool]){$available+='Redfish full-speed override'}
     $capabilities=if($available.Count){$available -join ', '}else{'No supported write capability detected'}
+    $identity.Capabilities=$capabilities
     # Pending recovery is checked before any new writes or monitoring session.
     if(Test-Path -LiteralPath $recoveryPath){
         $record=Get-Content -LiteralPath $recoveryPath -Raw | ConvertFrom-Json
         if($record.Host -ne $origin.Host -or -not $system.SerialNumber -or $record.Serial -ne [string]$system.SerialNumber){throw 'Pending recovery target does not match hardware identity'}
-        $expected=switch($record.Kind){HPE {$thermalPath};Supermicro {$modePath};RedfishOverride {$subPath};default {''}}
+        $expected=switch($record.Kind){HPE {$thermalPath};Supermicro {$modePath};RedfishOverride {$subPath};DellMinimum {$dellPath};default {''}}
         if(-not $expected -or $record.Path -ne $expected){throw 'Pending recovery resource mismatch'}
         $pending=$record;$restoring=$true;Set-NativeValues $record $record.Before;Remove-Item -LiteralPath $recoveryPath;$pending=$null;$restoring=$false
     }
     $telemetry=Read-Telemetry $system $enclosure
     if($Live){
         if(-not $system.SerialNumber -or $telemetry.ReportedHealth -ne 'TELEMETRY OK'){throw 'Native control requires serial identity and healthy complete temperature/fan telemetry'}
-        $plan=Get-NativeCoolingPlan $config $manufacturer $thermal $sub $mode $thermalPath $subPath $modePath
+        if($config.ManagementProvider -eq 'DellRedfish'){
+            if($config.NativeCoolingProfile -ne 'DellMinimum' -or -not $config.NativeMinimumEnabled){throw 'Enable Dell minimum fan percentage on Connection before applying'}
+            $plan=Get-DellMinimumPlan $dellAttributes $config.NativeMinimum $dellPath
+        }else{$plan=Get-NativeCoolingPlan $config $manufacturer $thermal $sub $mode $thermalPath $subPath $modePath}
         $pending=@{Host=$origin.Host;Serial=[string]$system.SerialNumber;Kind=$plan.Kind;Path=$plan.Path;Before=$plan.Before;After=$plan.After}
         $pending | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $recoveryPath -Encoding UTF8
         Set-NativeValues $pending $pending.After;$identity.CoolingProfile='Native cooling / '+$config.NativeCoolingProfile
