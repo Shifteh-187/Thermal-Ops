@@ -1,0 +1,20 @@
+THERMAL OPS 1.2.2
+Made by Chris Ramsay 2026
+
+Windows cooling and telemetry for supported server BMCs, gaming-PC motherboard headers and standalone controllers.
+
+Install is per-user. Server credentials are not included. Optional local profile import retains separate encrypted credentials for the same Windows user.
+
+Start Thermal Ops when I sign in to Windows is enabled by default. Sign-in starts each configured profile in its saved monitoring/control mode and hides the window to the tray. X hides the dashboard; use tray Exit / restore defaults for shutdown.
+
+Dell R730 keeps the existing curves and emergency/restoration logic. HPE native cooling profiles/minimum speed, Supermicro advertised fan modes and standard Redfish full-speed override are available only when exposed by the endpoint. Redfish monitoring is available for compatible systems from other vendors. Native settings are saved before changes and read back after restoration. Physical compatibility testing beyond the existing R730 remains outstanding.
+
+For gaming PCs and standalone controllers, use Local PC / controllers. Only channels exposed by the bundled hardware backend can be selected. The optional signed PawnIO driver installer is launched interactively from this setup screen if required. No kernel driver is silently installed. Choose and confirm the physical fan, temperature source and limit. This version supports multiple selected fan channels per computer. Do not assign pumps or physically absent fans.
+
+Read HARDWARE-SUPPORT.md for implemented adapters, setup, technologies reviewed but not implemented and current limitations. Detection does not guarantee fan control on every model. Local driver acceptance is not independent RPM verification. Unavailable whole-PC power is shown as unknown.
+
+Before upgrading/uninstalling, use tray Exit and wait for restoration confirmation. Setup never forcibly stops cooling. Uninstall removes shortcuts/startup and keeps user profiles/history. The installer is unsigned.
+
+Migration fix: Import old settings in the app restores matching endpoints, including their saved GPU-source confirmation and executable paths. Existing target settings are backed up before merging.
+
+IPMItool and runtime DLLs are now included. Use built-in IPMI tool is enabled by default; opt out on Connection only for a custom executable. HPE/iLO and shared Redfish support are included and use HTTPS without a separate HPE utility. GPU drivers, optional PC hardware driver and an appropriately trusted iLO certificate remain platform requirements.

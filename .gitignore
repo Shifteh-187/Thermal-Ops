@@ -1,0 +1,17 @@
+/Installer/Payload/
+/Installer/Tools/
+/Dist/
+**/Profiles/
+**/Runs/
+**/RedfishTest-*/
+**/HpeTest-*/
+**/bin/
+**/obj/
+.vs/
+*.log
+*.jsonl
+*.exe
+*.dll
+*.zip
+settings.json
+*.bak
