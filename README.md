@@ -14,6 +14,14 @@ For remote servers with GPUs cooled by chassis fans, run the R730 curve controll
 
 Use the ready-made **MSI or EXE installer** from **Releases** for the graphical app. Both include the complete application and bundled tools. [MSI installation and migration instructions](Installer/MSI.md). The console ZIP keeps the original ASCII PowerShell dashboard available. The installer is unsigned; Windows may display a publisher warning.
 
+## Updates
+
+Version 1.4.0 adds **Check for updates** on the dashboard and tray menu. A background check runs once at startup; turn it off with **Check for updates at startup** in the tray menu. Only newer stable GitHub releases are offered. No account or server information is sent to GitHub; checks use the public release API.
+
+Download and installation always require your choice. The updater matches your MSI or EXE installation, checks the asset size and GitHub SHA-256 digest, then requests safe controller shutdown. Setup starts only after the dashboard exits and the helper confirms no other Thermal Ops cooling workers remain. Profiles/settings are preserved. If you cancel setup, reopen Thermal Ops to resume your configured controllers. Portable copies are directed to the release page instead of being converted automatically.
+
+Install 1.4.0 normally once to obtain the updater; older versions cannot discover it themselves. [Updater details and tests](docs/UPDATES.md).
+
 ## Hardware support
 
 - **Dell iDRAC / IPMI:** general temperature, fan and whole-server power monitoring without requiring the R730's six-fan/two-CPU layout. Missing values stay unknown. Unsupported model/firmware combinations automatically remain read-only, even if Start cooling was requested.
@@ -64,7 +72,7 @@ Requires Windows, .NET Framework 4.7.2 or newer, Windows PowerShell 5.1 and Inno
 .\Installer\Build.ps1 -InnoCompiler 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
 
-Output: `Dist/Thermal-Ops-Setup-1.3.0.exe`. The dependency archive includes upstream binaries, licence notices and required corresponding source archives. LibreHardwareMonitor 0.9.6 comes from its official GitHub release; PawnIO 2.1.0 is its bundled driver installer. The Windows ipmitool 1.8.19 build is distributed by Danny Nieuwenhuis, with provenance and hashes in `Installer/Payload/Tools/IPMI`. The optional PawnIO driver requires a separate installation with administrator approval.
+Output: `Dist/Thermal-Ops-Setup-1.4.0.exe`. The dependency archive includes upstream binaries, licence notices and required corresponding source archives. LibreHardwareMonitor 0.9.6 comes from its official GitHub release; PawnIO 2.1.0 is its bundled driver installer. The Windows ipmitool 1.8.19 build is distributed by Danny Nieuwenhuis, with provenance and hashes in `Installer/Payload/Tools/IPMI`. The optional PawnIO driver requires a separate installation with administrator approval.
 
 ## Licence
 

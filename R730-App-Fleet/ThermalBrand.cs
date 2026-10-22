@@ -7,8 +7,8 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCompany("Chris Ramsay")]
 [assembly: AssemblyProduct("Thermal Ops")]
 [assembly: AssemblyCopyright("Made by Chris Ramsay 2026")]
-[assembly: AssemblyVersion("1.3.0.0")]
-[assembly: AssemblyFileVersion("1.3.0.0")]
+[assembly: AssemblyVersion("1.4.0.0")]
+[assembly: AssemblyFileVersion("1.4.0.0")]
 public static class ThermalBrand {
     [DllImport("shell32.dll",CharSet=CharSet.Unicode)] static extern int SetCurrentProcessExplicitAppUserModelID(string id);
     public static void SetIdentity(){try{SetCurrentProcessExplicitAppUserModelID("ChrisRamsay.ThermalOps");}catch{}}

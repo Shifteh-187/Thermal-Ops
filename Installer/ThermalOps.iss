@@ -1,5 +1,5 @@
 #define AppName "Thermal Ops"
-#define AppVersion "1.3.0"
+#define AppVersion "1.4.0"
 [Setup]
 #ifdef ThermalOpsSmoke
 AppId={{EAE89B89-1B1E-48DE-8553-4271EF508553}
@@ -25,7 +25,7 @@ MinVersion=10.0
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
 OutputDir=..\Dist
-OutputBaseFilename=Thermal-Ops-Setup-1.3.0
+OutputBaseFilename=Thermal-Ops-Setup-1.4.0
 SetupIconFile=..\R730-App-Fleet\Assets\ThermalOps.ico
 UninstallDisplayIcon={app}\ThermalOps.exe
 WizardStyle=modern

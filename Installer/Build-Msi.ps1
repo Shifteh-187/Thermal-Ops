@@ -9,7 +9,7 @@ $factory=Get-Content (Join-Path $payload 'settings.json') -Raw|ConvertFrom-Json
 if($factory.IdracPassProtected -or $factory.IdracHost -ne '127.0.0.1' -or $factory.GpuSourceConfirmed){throw 'MSI requires unconfigured factory settings, never deployment settings'}
 # Include build-tool source and licence for reference.
 foreach($notice in @('WiX-MS-RL.txt','WiX-3.14.1-source.zip','MSI-THIRD-PARTY.txt')){if(-not(Test-Path (Join-Path $payload ('Licenses\'+$notice)))){throw 'Run Prepare-MsiTools.ps1 to stage the WiX licence and source'}}
-$version='1.3.0'
+$version='1.4.0'
 if([Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $payload 'ThermalOps.exe')).FileVersion -ne ($version+'.0')){throw 'Build the matching application payload first'}
 $compiler=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 & $compiler /nologo /target:winexe ('/out:'+(Join-Path $build 'MsiActions.exe')) /reference:System.Management.dll (Join-Path $PSScriptRoot 'MsiActions.cs')
@@ -19,7 +19,7 @@ function StableId([string]$value){$sha=[Security.Cryptography.SHA256]::Create();
 function StableGuid([string]$value){$sha=[Security.Cryptography.SHA256]::Create();try{$bytes=$sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($value.ToLowerInvariant()));([guid]::new([byte[]]$bytes[0..15])).ToString()}finally{$sha.Dispose()}}
 $name=if($Smoke){'Thermal Ops MSI Packaging Test'}else{'Thermal Ops'}
 $upgrade=if($Smoke){'AE91DC35-67EF-4275-8774-24557B431162'}else{'C916336D-6773-494F-A09F-B61FB1F628A0'}
-$product=if($Smoke){'7889C36E-6ED1-4892-97DC-4464E2C637B9'}else{'B365D85E-D8A5-4EE8-96AC-2413557A48BC'}
+$product=if($Smoke){'823E97FB-C0C3-4859-8EB8-3A411D0C058B'}else{'A503308A-140E-46D6-AC5C-7476D722B13D'}
 $xml=New-Object Text.StringBuilder
 [void]$xml.AppendLine(('<?xml version="1.0" encoding="utf-8"?><Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"><Product Id="'+$product+'" Name="'+$name+'" Language="1033" Version="'+$version+'" Manufacturer="Chris Ramsay" UpgradeCode="'+$upgrade+'">'))
 [void]$xml.AppendLine('<Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" Platform="x64" Description="Thermal Ops - made by Chris Ramsay 2026"/><MediaTemplate EmbedCab="yes" CompressionLevel="mszip"/><MajorUpgrade DowngradeErrorMessage="A newer Thermal Ops MSI is installed." Schedule="afterInstallInitialize"/>')

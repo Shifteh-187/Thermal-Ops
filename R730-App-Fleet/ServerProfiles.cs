@@ -75,9 +75,9 @@ public class ServerManager : Form {
         BackColor=Color.FromArgb(18,23,31);ForeColor=Color.White;Font=new Font("Segoe UI",10);
         profiles=Path.Combine(root,"Profiles");ProfileStore.Migrate(root,profiles);
         var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,Padding=new Padding(10)};
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute,45));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,27));Controls.Add(layout);
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute,82));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,27));Controls.Add(layout);
         var toolbar=new FlowLayoutPanel{Dock=DockStyle.Fill};var add=new ReadableButton{Text="Add server",Width=150,Height=34};var remove=new ReadableButton{Text="Remove selected",Width=165,Height=34};var stop=new ReadableButton{Text="Stop all / restore auto",Width=190,Height=34};var local=new ReadableButton{Text="Local PC / controllers",Width=205,Height=34};local.Click+=(s,e)=>AddLocalProfile();toolbar.Controls.Add(add);toolbar.Controls.Add(remove);toolbar.Controls.Add(stop);toolbar.Controls.Add(local);var import=new ReadableButton{Text="Import old settings",Width=170,Height=34};import.Click+=(s,e)=>ImportProfiles();toolbar.Controls.Add(import);
-        layout.Controls.Add(toolbar,0,0);
+        var updates=new ReadableButton{Text="Check for updates",Width=165,Height=34};updates.Click+=(s,e)=>CheckForUpdates(true);toolbar.Controls.Add(updates);layout.Controls.Add(toolbar,0,0);
         tabs.Dock=DockStyle.Fill;var all=new TabPage("All Systems"){BackColor=BackColor};all.Controls.Add(fleet);tabs.TabPages.Add(all);fleet.ServerSelected+=(index)=>{tabs.SelectedIndex=index+1;};layout.Controls.Add(tabs,0,1);status.Dock=DockStyle.Fill;status.ForeColor=Color.LightGray;layout.Controls.Add(status,0,2);
         foreach(string directory in Directory.GetDirectories(profiles)){try{if(File.Exists(Path.Combine(directory,"settings.json")))AddTab(directory);}catch(Exception ex){MessageBox.Show(this,"Could not load profile: "+ex.Message);}}
         add.Click+=(s,e)=>ShowAddServer();
@@ -92,12 +92,38 @@ public class ServerManager : Form {
         if(!FanApp.PreviewMode){
             trayMenu=new ContextMenuStrip();var heading=new ToolStripMenuItem("Thermal Ops"){Enabled=false};trayMenu.Items.Add(heading);trayMenu.Items.Add(new ToolStripMenuItem("Made by Chris Ramsay 2026"){Enabled=false});trayMenu.Items.Add(new ToolStripSeparator());
             trayMenu.Items.Add("Dashboard",null,(s,e)=>ShowDashboard());trayMenu.Items.Add("Add server",null,(s,e)=>{ShowDashboard();ShowAddServer();});trayMenu.Items.Add("Local PC / controllers",null,(s,e)=>{ShowDashboard();AddLocalProfile();});trayMenu.Items.Add(new ToolStripSeparator());trayMenu.Items.Add("Exit / restore defaults",null,(s,e)=>BeginExit());
+            trayMenu.Items.Insert(trayMenu.Items.Count-2,new ToolStripMenuItem("Check for updates",null,(s,e)=>CheckForUpdates(true)));
+            var autoUpdates=new ToolStripMenuItem("Check for updates at startup"){CheckOnClick=true,Checked=AppUpdates.CheckOnStartup};autoUpdates.CheckedChanged+=(s,e)=>AppUpdates.CheckOnStartup=autoUpdates.Checked;trayMenu.Items.Insert(trayMenu.Items.Count-2,autoUpdates);
             tray=new NotifyIcon{Text="Thermal Ops",Icon=ThermalBrand.CreateIcon(),ContextMenuStrip=trayMenu,Visible=true};tray.DoubleClick+=(s,e)=>ShowDashboard();
         }
+        Shown+=(s,e)=>{if(!FanApp.PreviewMode && AppUpdates.CheckOnStartup && (Environment.GetCommandLineArgs().Length==1 || Array.IndexOf(Environment.GetCommandLineArgs(),"--startup")>=0))CheckForUpdates(false);};
         FormClosed+=(s,e)=>{timer.Stop();timer.Dispose();if(tray!=null){tray.Visible=false;tray.Dispose();}if(trayMenu!=null)trayMenu.Dispose();};
         FormClosing+=(s,e)=>{if(e.CloseReason==CloseReason.UserClosing&&!exitRequested&&!FanApp.PreviewMode){e.Cancel=true;Hide();ShowInTaskbar=false;return;}foreach(var server in servers)if(server.IsRunning){e.Cancel=true;shuttingDown=true;foreach(var child in servers)child.StopCooling();break;}};
     }
     public static void TraySelfTest(){using(var f=new ServerManager()){f.Show();Application.DoEvents();if(f.tray==null||!f.tray.Visible||f.trayMenu.Items[0].Text!="Thermal Ops")throw new Exception("Tray menu missing");f.Close();Application.DoEvents();if(f.IsDisposed||f.Visible||f.ShowInTaskbar)throw new Exception("Close did not hide to tray");f.ShowDashboard();if(!f.Visible||!f.ShowInTaskbar||f.tabs.SelectedIndex!=0)throw new Exception("Dashboard restore failed");f.exitRequested=true;f.Close();if(!f.IsDisposed)throw new Exception("Explicit exit failed");}}
+    bool checkingUpdate;
+    async void CheckForUpdates(bool manual){
+        if(checkingUpdate||exitRequested)return;checkingUpdate=true;
+        try{
+            string kind=AppUpdates.InstallerKind();
+            var update=await System.Threading.Tasks.Task.Run(()=>AppUpdates.Check(kind));
+            if(IsDisposed||exitRequested)return;
+            if(update==null){if(manual)MessageBox.Show(this,"You are up to date ("+AppUpdates.Current.ToString(3)+").","Thermal Ops updates");return;}
+            ShowDashboard();
+            if(kind==null){if(MessageBox.Show(this,"Version "+update.Version.ToString(3)+" is available. This is a portable or unrecognised installation. Open the download page?","Thermal Ops updates",MessageBoxButtons.YesNo)==DialogResult.Yes)System.Diagnostics.Process.Start(AppUpdates.Releases);return;}
+            if(MessageBox.Show(this,"Thermal Ops "+update.Version.ToString(3)+" is available. Installed: "+AppUpdates.Current.ToString(3)+".\n\nDownload the "+kind.ToUpperInvariant()+" update? Cooling continues during download. You will then confirm safe shutdown before setup opens.\n\nRelease notes: "+AppUpdates.Releases,"Update available",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
+            manual=true;
+            status.Text="Downloading and verifying Thermal Ops update...";
+            string installer=await System.Threading.Tasks.Task.Run(()=>AppUpdates.Download(update));
+            if(IsDisposed||exitRequested)return;
+            if(MessageBox.Show(this,"The installer is downloaded and verified. Stop controllers, restore default cooling and upgrade now?\n\nIf you cancel setup, reopen Thermal Ops to resume your saved cooling profiles.","Ready to upgrade",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
+            using(var dialog=new CoolingShutdownDialog(servers)){
+                if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+                AppUpdates.StartInstallerAfterExit(installer,update.Hash);exitRequested=true;Close();
+            }
+        }catch(Exception ex){if(manual&&!IsDisposed)MessageBox.Show(this,"Could not complete the update: "+ex.Message+"\nYou can retry from Check for updates.","Thermal Ops updates");}
+        finally{checkingUpdate=false;}
+    }
     void BeginExit(){ShowDashboard();using(var dialog=new CoolingShutdownDialog(servers)){if(dialog.ShowDialog(this)==DialogResult.OK){exitRequested=true;Close();}}}
     public void HideToTray(){Hide();ShowInTaskbar=false;}
     void ShowDashboard(){ShowInTaskbar=true;Show();if(WindowState==FormWindowState.Minimized)WindowState=FormWindowState.Normal;tabs.SelectedIndex=0;Activate();BringToFront();}
