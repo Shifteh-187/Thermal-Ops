@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0 MSI packaging
+
+- Added a full native per-user MSI with optional desktop/startup shortcuts.
+- Installation and removal block while cooling workers are active; saved settings and profiles are retained.
+- Separate EXE/MSI migration guard, reproducible MSI build scripts and isolated installation tests.
+
 ## 1.3.0 — broader iDRAC discovery and support requests
 
 - Generic Dell IPMI monitoring for different fan/CPU inventories and missing sensors.

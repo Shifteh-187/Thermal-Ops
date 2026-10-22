@@ -12,7 +12,7 @@ For remote servers with GPUs cooled by chassis fans, run the R730 curve controll
 
 ## Downloads
 
-Use the Windows installer from **Releases** for the graphical app. The console ZIP keeps the original ASCII PowerShell dashboard available. The installer is unsigned; Windows may display a publisher warning.
+Use the ready-made **MSI or EXE installer** from **Releases** for the graphical app. Both include the complete application and bundled tools. [MSI installation and migration instructions](Installer/MSI.md). The console ZIP keeps the original ASCII PowerShell dashboard available. The installer is unsigned; Windows may display a publisher warning.
 
 ## Hardware support
 
