@@ -1,3 +1,4 @@
+param([switch]$Custom)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot
 . (Join-Path $root 'R730-App-Fleet\Controller.ps1') -LibraryOnly
@@ -32,13 +33,14 @@ Add-Type -AssemblyName System.Security
 $password=[Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes('fixture'),$null,[Security.Cryptography.DataProtectionScope]::CurrentUser))
 $settings=Join-Path $fixture 'settings.json';$status=Join-Path $fixture 'status.json'
 @{IpmiExe=$fake;UseBundledIpmi=$false;IdracHost='recovery-fixture.invalid';IdracUser='fixture';IdracPassProtected=$password;GpuMode='ServerOnly';GpuSourceConfirmed=$true}|ConvertTo-Json|Set-Content $settings
+if($Custom){$customSettings=Get-Content $settings -Raw|ConvertFrom-Json;$customSettings|Add-Member FanCurveMode 'Custom';$customSettings|Add-Member FanCurves @(@{Source='CpuMax';Enabled=$true;Points=@(@{Temperature=0;Percent=80},@{Temperature=100;Percent=80})});$customSettings|ConvertTo-Json -Depth 8|Set-Content $settings}
 $controller=Join-Path $root 'R730-App-Fleet\Controller.ps1'
 $p=Start-Process powershell.exe -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "'+$controller+'" -Live -SettingsPath "'+$settings+'" -StatusPath "'+$status+'" -Iterations 8') -Wait -PassThru -WindowStyle Hidden
 if($p.ExitCode -eq 0){throw 'Missing telemetry did not fault'}
 $final=Get-Content $status -Raw|ConvertFrom-Json
 if($final.ExitReason -ne 'TelemetryUnavailable' -or -not $final.RetryAllowed -or $final.FailureMessage -notmatch 'Required R730 telemetry missing' -or $final.State -ne 'Stopped'){throw 'Original cause or restore result lost'}
 $writes=Get-Content (Join-Path $fixture 'raw.txt')
-if(-not($writes|Where-Object{$_ -match '^3 raw 0x30 0x30 0x01 0x00$'})){throw 'Takeover did not wait for three complete samples'}
+if($Custom -and -not($writes|Where-Object{$_ -eq '3 raw 0x30 0x30 0x02 0xff 0x50'})){throw 'Custom curve demand did not reach validated shared output'};if(-not($writes|Where-Object{$_ -match '^3 raw 0x30 0x30 0x01 0x00$'})){throw 'Takeover did not wait for three complete samples'}
 if(-not($writes|Where-Object{$_ -match 'raw 0x30 0x30 0x01 0x01$'})){throw 'Auto restoration not attempted'}
 if(Test-Path (Join-Path $fixture 'Dell-Auto-Recovery.pending')){throw 'Successful restore left pending marker'}
 if($final.HardwareDiscovery[0].SensorNumber -ne '0x0E'){throw 'Discovery absent from final snapshot'}

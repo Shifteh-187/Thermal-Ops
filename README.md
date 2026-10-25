@@ -1,6 +1,6 @@
 # Thermal Ops
 
-Made by **Chris Ramsay, 2026**. Windows cooling control and monitoring with a dark dashboard, live temperature trends, individual server power graphs, fleet health and total power usage.
+Made by **Chris Ramsay, 2026**. Windows cooling control and monitoring with a dark dashboard, live temperature trends, individual server power graphs, cluster health and total power usage.
 
 ![Thermal Ops dashboard](docs/dashboard.png)
 
@@ -21,6 +21,12 @@ Version 1.4.0 adds **Check for updates** on the dashboard and tray menu. A backg
 Download and installation always require your choice. The updater matches your MSI or EXE installation, checks the asset size and GitHub SHA-256 digest, then requests safe controller shutdown. Setup starts only after the dashboard exits and the helper confirms no other Thermal Ops cooling workers remain. Profiles/settings are preserved. If you cancel setup, reopen Thermal Ops to resume your configured controllers. Portable copies are directed to the release page instead of being converted automatically.
 
 Install 1.4.0 normally once to obtain the updater; older versions cannot discover it themselves. [Updater details and tests](docs/UPDATES.md).
+
+## Fan curves, server names and discovery
+
+The **Fan curves** tab provides original/adaptive modes, an editable point graph and a protected manual percentage for the verified R730 adapter. Detected fans and temperature sources populate automatically. The original thermal safety floors remain active; the current R730 writer controls the chassis fan group together. Rename a server under **Connection → Server name**. The cluster view and graphs use buffered rendering to reduce border flicker.
+
+**Hardware support request → Run read-only discovery** opens a progress dialog with detected sensor/device rows, query/access results and a public-report preview. It supports generic IPMI/Redfish discovery and local-PC driver/Windows inventory, subject to exposed hardware and permissions. See [fan curves, probe details and individual-fan research](docs/FAN-CURVES.md).
 
 ## Hardware support
 
@@ -76,7 +82,9 @@ Requires Windows, .NET Framework 4.7.2 or newer, Windows PowerShell 5.1 and Inno
 .\Installer\Build.ps1 -InnoCompiler 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
 
-Output: `Dist/Thermal-Ops-Setup-1.4.1.exe`. The dependency archive includes upstream binaries, licence notices and required corresponding source archives. LibreHardwareMonitor 0.9.6 comes from its official GitHub release; PawnIO 2.1.0 is its bundled driver installer. The Windows ipmitool 1.8.19 build is distributed by Danny Nieuwenhuis, with provenance and hashes in `Installer/Payload/Tools/IPMI`. The optional PawnIO driver requires a separate installation with administrator approval.
+For an MSI-only build, use `Build.ps1 -AppOnly` to prepare the payload without Inno Setup, then follow [MSI build instructions](Installer/MSI.md).
+
+Output: `Dist/Thermal-Ops-Setup-1.5.0.exe`. The dependency archive includes upstream binaries, licence notices and required corresponding source archives. LibreHardwareMonitor 0.9.6 comes from its official GitHub release; PawnIO 2.1.0 is its bundled driver installer. The Windows ipmitool 1.8.19 build is distributed by Danny Nieuwenhuis, with provenance and hashes in `Installer/Payload/Tools/IPMI`. The optional PawnIO driver requires a separate installation with administrator approval.
 
 ## Licence
 

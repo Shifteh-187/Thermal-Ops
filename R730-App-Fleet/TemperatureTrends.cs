@@ -87,11 +87,11 @@ public class TemperaturePlot : Control {
 
 public class TemperatureTrends : UserControl {
     public TemperatureHistory History {get;private set;}readonly TemperaturePlot plot=new TemperaturePlot();Label note=new Label();readonly bool preview,power;string currentFile;
-    public TemperatureTrends(string file,bool preview,bool power=false,bool fleet=false){this.power=power;this.preview=preview;currentFile=file;History=new TemperatureHistory(file,preview,power?100000:150,power?0:-20);plot.History=History;Dock=DockStyle.Fill;BackColor=Color.FromArgb(6,14,17);
+    public TemperatureTrends(string file,bool preview,bool power=false,bool fleet=false){DoubleBuffered=true;this.power=power;this.preview=preview;currentFile=file;History=new TemperatureHistory(file,preview,power?100000:150,power?0:-20);plot.History=History;Dock=DockStyle.Fill;BackColor=Color.FromArgb(6,14,17);
         if(power){plot.Unit="W";plot.AxisTitle="POWER / W";plot.AxisStep=100;plot.MinimumScale=500;plot.Names=new[]{"SERVER","GPU SUM","","",""};plot.VisibleSeries[2]=plot.VisibleSeries[3]=plot.VisibleSeries[4]=false;}
-        if(fleet){plot.Names[0]="FLEET TOTAL";plot.VisibleSeries[1]=false;}
-        var layout=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=3,ColumnCount=1,Padding=new Padding(8)};layout.RowStyles.Add(new RowStyle(SizeType.Absolute,62));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,22));Controls.Add(layout);
-        var toolbar=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=true};toolbar.Controls.Add(new Label{Text=fleet?"[ TOTAL FLEET POWER ]":power?"[ POWER TRACE ]":"[ THERMAL TRACE ]",AutoSize=true,ForeColor=Color.FromArgb(82,255,159),Font=new Font("Consolas",11,FontStyle.Bold),Padding=new Padding(0,5,8,0)});
+        if(fleet){plot.Names[0]="CLUSTER TOTAL";plot.VisibleSeries[1]=false;}
+        var layout=new BufferedTableLayoutPanel{Dock=DockStyle.Fill,RowCount=3,ColumnCount=1,Padding=new Padding(8)};layout.RowStyles.Add(new RowStyle(SizeType.Absolute,62));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,22));Controls.Add(layout);
+        var toolbar=new BufferedFlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=true};toolbar.Controls.Add(new Label{Text=fleet?"[ TOTAL CLUSTER POWER ]":power?"[ POWER TRACE ]":"[ THERMAL TRACE ]",AutoSize=true,ForeColor=Color.FromArgb(82,255,159),Font=new Font("Consolas",11,FontStyle.Bold),Padding=new Padding(0,5,8,0)});
         var period=new ReadableButton{Text="5 min  v",Width=100,Height=27,Font=new Font("Consolas",10)};var menu=new ContextMenuStrip{BackColor=Color.FromArgb(12,28,26),ForeColor=Color.FromArgb(82,255,159)};
         string[] labels={"1 min","5 min","15 min","30 min","1 hour","6 hours","24 hours"};double[] minutes={1,5,15,30,60,360,1440};
         for(int n=0;n<labels.Length;n++){int selected=n;var item=menu.Items.Add(labels[n]);item.Click+=(sender,args)=>{plot.Period=TimeSpan.FromMinutes(minutes[selected]);period.Text=labels[selected]+"  v";plot.Invalidate();};}
@@ -101,8 +101,8 @@ public class TemperatureTrends : UserControl {
         layout.Controls.Add(toolbar,0,0);plot.Dock=DockStyle.Fill;layout.Controls.Add(plot,0,1);note.Dock=DockStyle.Fill;note.ForeColor=Color.FromArgb(119,174,160);note.Font=new Font("Consolas",8);note.Text=power?"SERVER INPUT ALREADY INCLUDES GPU POWER / DO NOT ADD TRACES":"ACTUAL SAMPLE TIMES / GAPS >45s STAY OPEN / HOVER TO INSPECT";layout.Controls.Add(note,0,2);
         if(fleet)note.Text="COMPLETE COVERAGE ONLY / MISSING OR STALE SERVERS LEAVE GAPS";
     }
-    public void Feed(DateTime time,double?[] values){History.Add(time,values);if(History.StorageWarning.Length>0)note.Text=History.StorageWarning;plot.Invalidate();}
-    public void Tick(){plot.Invalidate();}
+    public void Feed(DateTime time,double?[] values){if(!History.Add(time,values))return;if(History.StorageWarning.Length>0)note.Text=History.StorageWarning;plot.Invalidate();}
+    public void Tick(){if(Visible)plot.Invalidate(false);}
     public void NewSession(){History.NewSession();}
     public void SetTarget(string file){if(currentFile==file)return;History.Compact();currentFile=file;History=new TemperatureHistory(file,preview,power?100000:150,power?0:-20);plot.History=History;plot.Invalidate();}
     protected override void Dispose(bool disposing){if(disposing)History.Compact();base.Dispose(disposing);}

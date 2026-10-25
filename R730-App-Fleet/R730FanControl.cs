@@ -14,6 +14,7 @@ using System.Windows.Forms;
 public class FanApp : Form {
     public static bool PreviewMode=false;
     TemperatureTrends trends,powerTrends;
+    readonly FanCurveEditor curveEditor=new FanCurveEditor();readonly TextBox serverNameBox=new TextBox();
     public Dictionary<string,object> Snapshot {get;private set;}
     bool observing=false;
     readonly string root=AppDomain.CurrentDomain.BaseDirectory;
@@ -23,8 +24,8 @@ public class FanApp : Form {
     string localMachine="Detecting Windows hardware...",targetMachine="Cooling target: waiting for iDRAC identification";
     Label[] values=new Label[8];
     Label summary=new Label();
-    DataGridView temperatures=new DataGridView();
-    DataGridView fans=new DataGridView(), gpus=new DataGridView();
+    DataGridView temperatures=new BufferedDataGridView();
+    DataGridView fans=new BufferedDataGridView(), gpus=new BufferedDataGridView();
     CheckBox bundledIpmi=new ReadableCheckBox();
     ComboBox nativeProfile=new ComboBox();NumericUpDown nativeMinimum=new NumericUpDown{Minimum=0,Maximum=100,Value=50};CheckBox nativeMinimumEnabled=new ReadableCheckBox();
     ComboBox provider=new ComboBox(),gpuScope=new ComboBox();
@@ -82,6 +83,9 @@ public class FanApp : Form {
         if(args.Length>0&&args[0]=="--tray-test"){try{ServerManager.TraySelfTest();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"tray-test.txt"),"PASS: tray menu, X hides, dashboard restores, explicit exit disposes.");}catch(Exception ex){File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"tray-test.txt"),"FAIL: "+ex.Message);Environment.Exit(1);}return;}
         if(args.Length>0&&args[0]=="--shutdown-test"){try{var now=DateTime.UtcNow;var data=new Dictionary<string,object>{{"Time",now.ToString("o")},{"State","Stopped"},{"Message","Dell automatic control command accepted"}};if(!CoolingShutdownDialog.Accepted(data,now))throw new Exception("Restore acknowledgement rejected");data["State"]="RESTORE FAILED";if(CoolingShutdownDialog.Accepted(data,now))throw new Exception("Failure accepted");data["State"]="Stopped";data["Time"]=now.AddMinutes(-2).ToString("o");if(CoolingShutdownDialog.Accepted(data,now))throw new Exception("Old acknowledgement accepted");data["Time"]=now.ToString("o");data["Message"]="Unknown exit";if(CoolingShutdownDialog.Accepted(data,now))throw new Exception("Unknown exit accepted");foreach(string acknowledgement in new[]{"Original native cooling settings verified","Hardware default restore command accepted"}){data["Message"]=acknowledgement;if(!CoolingShutdownDialog.Accepted(data,now))throw new Exception("Native/local acknowledgement rejected");}File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"shutdown-test.txt"),"PASS: restore acknowledgement, failed restore, stale status and unknown exit.");}catch(Exception ex){File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"shutdown-test.txt"),"FAIL: "+ex.Message);Environment.Exit(1);}return;}
         if(args.Length>0&&args[0]=="--reconnect-test"){ReconnectPolicy.SelfTest();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"reconnect-test.txt"),"PASS: retry intent, backoff, cancellation, fault latches and unknown crash rejection.");return;}
+        if(args.Length>0&&args[0]=="--curves-test"){try{CurveAndNameSelfTest();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"curves-test.txt"),"PASS: curve editor, validation, discovery, persistence, locks, rename and tab order.");}catch(Exception ex){File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"curves-test.txt"),"FAIL: "+ex.ToString());Environment.Exit(1);}return;}
+        if(args.Length>0&&args[0]=="--curves-preview"){PreviewMode=true;using(var f=new FanApp()){if(args.Length>1)f.PreviewSnapshot(args[1]);var tab=(TabControl)f.curveEditor.Parent.Parent;tab.SelectedTab=(TabPage)f.curveEditor.Parent;f.Show();Application.DoEvents();using(var bitmap=new Bitmap(f.Width,f.Height)){f.DrawToBitmap(bitmap,new Rectangle(0,0,f.Width,f.Height));bitmap.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"curves-preview.png"));}f.Hide();}return;}
+        if(args.Length>0&&args[0]=="--discovery-preview"){PreviewMode=true;HardwareDiscoveryDialog.Preview();return;}
         var manager=new ServerManager();
         if(args.Length>1&&args[0]=="--observe")manager.Shown+=(sender,eventArgs)=>manager.ObserveExisting(args[1]);
         if(args.Length>1&&args[0]=="--resume-profile")manager.Shown+=(sender,eventArgs)=>manager.StartProfile(args[1]);
@@ -93,27 +97,27 @@ public class FanApp : Form {
         profileDirectory=directory??root;
         Text="Fan Control - System Overview"; Size=new Size(1180,1000); MinimumSize=new Size(1000,850);
         StartPosition=FormStartPosition.CenterScreen; BackColor=bg; ForeColor=ink; Font=new Font("Segoe UI",10);
-        var layout=new TableLayoutPanel{Dock=DockStyle.Fill,Padding=new Padding(10),RowCount=5,ColumnCount=1};
+        var layout=new BufferedTableLayoutPanel{Dock=DockStyle.Fill,Padding=new Padding(10),RowCount=5,ColumnCount=1};
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute,76)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,48));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent,100)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,92)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,34)); Controls.Add(layout);
-        var header=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=2,ColumnCount=1};header.RowStyles.Add(new RowStyle(SizeType.Absolute,34));header.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        var header=new BufferedTableLayoutPanel{Dock=DockStyle.Fill,RowCount=2,ColumnCount=1};header.RowStyles.Add(new RowStyle(SizeType.Absolute,34));header.RowStyles.Add(new RowStyle(SizeType.Percent,100));
         var heading=new Label{Text="FAN CONTROL // THERMAL OPS",Font=new Font("Consolas",18,FontStyle.Bold),ForeColor=Color.FromArgb(82,255,159),Dock=DockStyle.Fill};header.Controls.Add(heading,0,0);
         machine.Dock=DockStyle.Fill;machine.ForeColor=Color.LightSteelBlue;machine.Font=new Font("Segoe UI",9);machine.Text=localMachine+"\r\n"+targetMachine;header.Controls.Add(machine,0,1);layout.Controls.Add(header,0,0);
-        var statusPanel=new Panel{Dock=DockStyle.Fill}; state.Text="READY"; state.ForeColor=Color.Turquoise; state.AutoSize=true;
+        var statusPanel=new BufferedPanel{Dock=DockStyle.Fill}; state.Text="READY"; state.ForeColor=Color.Turquoise; state.AutoSize=true;
         detail.Text="Start monitoring to view live readings. Cooling control is separate."; detail.Location=new Point(0,27); detail.AutoSize=true;
         statusPanel.Controls.Add(state);statusPanel.Controls.Add(detail);layout.Controls.Add(statusPanel,0,1);
-        var tabs=new TabControl{Dock=DockStyle.Fill};layout.Controls.Add(tabs,0,2);
+        var tabs=new BufferedTabControl{Dock=DockStyle.Fill};layout.Controls.Add(tabs,0,2);
         var overview=new TabPage("Overview"){BackColor=bg,ForeColor=ink};tabs.TabPages.Add(overview);
-        var data=new TableLayoutPanel{Dock=DockStyle.Top,Height=825,RowCount=5,ColumnCount=1,Padding=new Padding(8)};
+        var data=new BufferedTableLayoutPanel{Dock=DockStyle.Top,Height=825,RowCount=5,ColumnCount=1,Padding=new Padding(8)};
         data.RowStyles.Add(new RowStyle(SizeType.Absolute,136));data.RowStyles.Add(new RowStyle(SizeType.Absolute,300));data.RowStyles.Add(new RowStyle(SizeType.Absolute,110));data.RowStyles.Add(new RowStyle(SizeType.Absolute,205));data.RowStyles.Add(new RowStyle(SizeType.Absolute,56));
-        var scroll=new Panel{Dock=DockStyle.Fill,AutoScroll=true};scroll.Controls.Add(data);overview.Controls.Add(scroll);
-        var graphs=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=1};graphs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));graphs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));trends=new TemperatureTrends(null,PreviewMode);powerTrends=new TemperatureTrends(null,PreviewMode,true);trends.Margin=new Padding(0,4,6,4);powerTrends.Margin=new Padding(6,4,0,4);graphs.Controls.Add(trends,0,0);graphs.Controls.Add(powerTrends,1,0);data.Controls.Add(graphs,0,1);
-        var cards=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=4,RowCount=2};data.Controls.Add(cards,0,0);
+        var scroll=new BufferedPanel{Dock=DockStyle.Fill,AutoScroll=true};scroll.Controls.Add(data);overview.Controls.Add(scroll);
+        var graphs=new BufferedTableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=1};graphs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));graphs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));trends=new TemperatureTrends(null,PreviewMode);powerTrends=new TemperatureTrends(null,PreviewMode,true);trends.Margin=new Padding(0,4,6,4);powerTrends.Margin=new Padding(6,4,0,4);graphs.Controls.Add(trends,0,0);graphs.Controls.Add(powerTrends,1,0);data.Controls.Add(graphs,0,1);
+        var cards=new BufferedTableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=4,RowCount=2};data.Controls.Add(cards,0,0);
         for(int i=0;i<4;i++)cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,25));
         cards.RowStyles.Add(new RowStyle(SizeType.Percent,50));cards.RowStyles.Add(new RowStyle(SizeType.Percent,50));
         string[] titles={"GPU MAXIMUM","CPU MAXIMUM","EXHAUST","FAN COMMAND","INLET","SERVER POWER","GPU MAX LOAD","GPU MAX POWER"};
         for(int i=0;i<8;i++){
-            var p=new Panel{Dock=DockStyle.Fill,BackColor=card,Margin=new Padding(4),Padding=new Padding(10)};
+            var p=new BufferedPanel{Dock=DockStyle.Fill,BackColor=card,Margin=new Padding(4),Padding=new Padding(10)};
             p.Controls.Add(new Label{Text=titles[i],Dock=DockStyle.Top,Height=21,ForeColor=Color.Silver,Font=new Font("Segoe UI",9)});
             values[i]=new Label{Text="--",Location=new Point(10,28),AutoSize=true,Font=new Font("Segoe UI",18,FontStyle.Bold)};
             p.Controls.Add(values[i]);cards.Controls.Add(p,i%4,i/4);
@@ -121,14 +125,14 @@ public class FanApp : Form {
         StyleGrid(gpus);foreach(string name in new[]{"Graphics card","Vendor","Provider","Core C","Load %","Power W","Bus","Identity"})gpus.Columns.Add(name,name);
         gpus.Columns[0].FillWeight=180;gpus.Columns[7].FillWeight=180;
         data.Controls.Add(Section("GRAPHICS CARDS",gpus),0,2);
-        var lower=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2};lower.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,45));lower.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,55));data.Controls.Add(lower,0,3);
+        var lower=new BufferedTableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2};lower.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,45));lower.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,55));data.Controls.Add(lower,0,3);
         StyleGrid(fans);fans.Columns.Add("fan","Chassis fan");fans.Columns.Add("rpm","Measured RPM");for(int i=1;i<=6;i++)fans.Rows.Add("Fan "+i,"--");
         StyleGrid(temperatures);temperatures.Columns.Add("sensor","Temperature probe");temperatures.Columns.Add("temperature","Reading C");
         lower.Controls.Add(Section("CHASSIS FANS",fans),0,0);lower.Controls.Add(Section("SERVER TEMPERATURE PROBES",temperatures),1,0);
         summary.Dock=DockStyle.Fill;summary.Padding=new Padding(5,8,5,0);summary.ForeColor=Color.LightGray;
         summary.Text="Live GPU, fan and server telemetry appears here after the first scan.";data.Controls.Add(summary,0,4);
         var connection=new TabPage("Connection"){BackColor=bg,ForeColor=ink};tabs.TabPages.Add(connection);
-        var form=new TableLayoutPanel{Dock=DockStyle.Top,Height=650,ColumnCount=2,Padding=new Padding(15)};form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,150));form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));connection.Controls.Add(form);
+        var form=new BufferedTableLayoutPanel{Dock=DockStyle.Top,Height=650,ColumnCount=2,Padding=new Padding(15)};form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,150));form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));connection.Controls.Add(form);
         string[] names={"iDRAC / iLO address","Username","Password","ipmitool path","nvidia-smi path"};TextBox[] fields={hostBox,userBox,passBox,ipmiBox,gpuBox};
         for(int i=0;i<5;i++){form.RowStyles.Add(new RowStyle(SizeType.Absolute,43));form.Controls.Add(new Label{Text=names[i],AutoSize=true,Padding=new Padding(0,5,0,0)},0,i);fields[i].Dock=DockStyle.Fill;form.Controls.Add(fields[i],1,i);}passBox.UseSystemPasswordChar=true;
         provider.DropDownStyle=ComboBoxStyle.DropDownList;provider.Items.AddRange(new object[]{"Auto","NVIDIA","LibreHardwareMonitor","OpenHardwareMonitor"});provider.SelectedIndex=0;provider.Dock=DockStyle.Fill;
@@ -139,18 +143,20 @@ public class FanApp : Form {
         bundledIpmi.Text="Use built-in IPMI tool (included)";bundledIpmi.AutoSize=true;bundledIpmi.CheckedChanged+=(s,e)=>{ipmiBox.Enabled=!bundledIpmi.Checked&&!IsRunning&&!observing;if(bundledIpmi.Checked)ipmiBox.Text=BundledTools.IpmiPath(root);};form.Controls.Add(bundledIpmi,1,11);
         save.Text="Save connection";save.Width=160;save.Click+=(s,e)=>SaveSettings();form.Controls.Add(save,1,8);
         nativeProfile.DropDownStyle=ComboBoxStyle.DropDownList;nativeProfile.Items.AddRange(new object[]{"IncreasedCooling","OptimalCooling","MaximumCooling","EnhancedCooling","FullSpeed","Standard","Optimal","HeavyIO","PUE2","FullSpeedOverride","DellMinimum"});nativeProfile.SelectedIndex=0;nativeProfile.Width=360;form.Controls.Add(new Label{Text="Native cooling profile",AutoSize=true},0,9);form.Controls.Add(nativeProfile,1,9);nativeMinimumEnabled.Text="HPE min fan %";nativeMinimumEnabled.AutoSize=true;form.Controls.Add(nativeMinimumEnabled,0,10);form.Controls.Add(nativeMinimum,1,10);
+        foreach(Control field in form.Controls)form.SetRow(field,form.GetRow(field)+1);form.RowStyles.Insert(0,new RowStyle(SizeType.Absolute,43));form.Height+=43;
+        form.Controls.Add(new Label{Text="Server name",AutoSize=true,Padding=new Padding(0,5,0,0)},0,0);
+        var nameRow=new BufferedTableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2};nameRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));nameRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,135));serverNameBox.BackColor=card;serverNameBox.ForeColor=ink;serverNameBox.Dock=DockStyle.Fill;serverNameBox.MaxLength=80;nameRow.Controls.Add(serverNameBox,0,0);var rename=new ReadableButton{Text="Rename server",Dock=DockStyle.Fill};rename.Click+=(s,e)=>RenameProfile();nameRow.Controls.Add(rename,1,0);form.Controls.Add(nameRow,1,0);
+        var curveTab=new TabPage("Fan curves"){BackColor=bg,ForeColor=ink};curveTab.Controls.Add(curveEditor);tabs.TabPages.Add(curveTab);curveEditor.SaveRequested+=()=>{try{SaveCurveConfiguration();}catch(Exception ex){MessageBox.Show(this,ex.Message,"Cannot save curve");}};curveEditor.RestoreRequested+=()=>RequestStop();
         var logTab=new TabPage("Activity");messages.Multiline=true;messages.ReadOnly=true;messages.ScrollBars=ScrollBars.Vertical;messages.Dock=DockStyle.Fill;messages.BackColor=bg;messages.ForeColor=ink;logTab.Controls.Add(messages);tabs.TabPages.Add(logTab);
-        var buttons=new FlowLayoutPanel{AutoScroll=true,Dock=DockStyle.Fill,Padding=new Padding(0,8,0,0)};
+        var buttons=new BufferedFlowLayoutPanel{AutoScroll=true,Dock=DockStyle.Fill,Padding=new Padding(0,8,0,0)};
         monitor.Text="Monitor only";control.Text="Start cooling";stop.Text="Stop / Dell auto";
         foreach(var b in new[]{monitor,control,stop}){b.Width=154;b.Height=35;b.FlatStyle=FlatStyle.Flat;buttons.Controls.Add(b);}
-        smart.Text="Smart curves (trial)";smart.AutoSize=true;smart.Margin=new Padding(18,9,0,0);buttons.Controls.Add(smart);
-        var report=new ReadableButton{Text="Hardware support request",Width=205,Height=35};report.Click+=(s,e)=>HardwareSupportReport.Show(this,Snapshot);buttons.Controls.Add(report);
-        var view=new ReadableButton{Text="View live feed",Width=145,Height=35};buttons.Controls.Add(view);
-        view.Click+=(s,e)=>{try{if(IsRunning){Log("Already displaying this server's live worker.");return;}string feed=FeedDiscovery.Find(root,profileDirectory,hostBox.Text);if(feed==null){MessageBox.Show(this,"No fresh feed found for this server. Start Monitor only or cooling on its controller first.","No live feed");return;}if(observing&&statusFile==feed)return;ObserveExisting(feed);}catch(Exception ex){MessageBox.Show(this,ex.Message,"Cannot view feed");}};
+
+        var report=new ReadableButton{Text="Hardware support request",Width=205,Height=35};report.Click+=(s,e)=>HardwareSupportReport.Show(this,Snapshot,profileDirectory,()=>Snapshot);buttons.Controls.Add(report);
         monitor.Click+=(s,e)=>StartWorker(false);control.Click+=(s,e)=>StartWorker(true);stop.Click+=(s,e)=>RequestStop();stop.Enabled=false;
         layout.Controls.Add(buttons,0,3);age.Dock=DockStyle.Fill;age.ForeColor=Color.Silver;age.Text="No readings yet";layout.Controls.Add(age,0,4);
         FormClosing+=OnClosing;timer.Interval=1000;timer.Tick+=(s,e)=>RefreshState();timer.Start();
-        try { LoadSettings();ApplyProviderUi(); } catch(Exception ex){Log("Connection settings: "+ex.Message);}
+        try { LoadSettings();serverNameBox.Text=ProfileName;curveEditor.LoadConfig(settings,IsNative);ApplyProviderUi(); } catch(Exception ex){Log("Connection settings: "+ex.Message);}
         Shown+=(sender,eventArgs)=>Task.Run(()=>{string detected=DetectLocalMachine();try{if(!IsDisposed)BeginInvoke((Action)(()=>{localMachine=detected;UpdateMachineLabel();}));}catch(InvalidOperationException){}});
     }
     void StyleGrid(DataGridView grid){
@@ -160,7 +166,7 @@ public class FanApp : Form {
         grid.ColumnHeadersDefaultCellStyle.BackColor=Color.FromArgb(37,47,61);grid.ColumnHeadersDefaultCellStyle.ForeColor=ink;grid.EnableHeadersVisualStyles=false;grid.RowTemplate.Height=25;
         grid.ColumnAdded+=(s,e)=>{e.Column.SortMode=DataGridViewColumnSortMode.NotSortable;};
     }
-    Control Section(string title,Control content){var p=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=2,Margin=new Padding(4)};p.RowStyles.Add(new RowStyle(SizeType.Absolute,29));p.RowStyles.Add(new RowStyle(SizeType.Percent,100));p.Controls.Add(new Label{Text=title,Dock=DockStyle.Fill,ForeColor=Color.LightSteelBlue,Font=new Font("Segoe UI",9,FontStyle.Bold),Padding=new Padding(2,5,0,0)},0,0);p.Controls.Add(content,0,1);return p;}
+    Control Section(string title,Control content){var p=new BufferedTableLayoutPanel{Dock=DockStyle.Fill,RowCount=2,Margin=new Padding(4)};p.RowStyles.Add(new RowStyle(SizeType.Absolute,29));p.RowStyles.Add(new RowStyle(SizeType.Percent,100));p.Controls.Add(new Label{Text=title,Dock=DockStyle.Fill,ForeColor=Color.LightSteelBlue,Font=new Font("Segoe UI",9,FontStyle.Bold),Padding=new Padding(2,5,0,0)},0,0);p.Controls.Add(content,0,1);return p;}
     public void PreviewSnapshot(string path){localMachine=DetectLocalMachine();var d=json.Deserialize<Dictionary<string,object>>(File.ReadAllText(path));UpdateReadings(d);UpdateMachineLabel();state.Text=Convert.ToString(d["State"]);detail.Text=Convert.ToString(d["Message"]);monitor.Enabled=control.Enabled=save.Enabled=smart.Enabled=false;stop.Enabled=true;}
     void UpdateMachineLabel(){machine.Text=localMachine+"\r\n"+targetMachine;}
     static string DetectLocalMachine(){
@@ -178,6 +184,7 @@ public class FanApp : Form {
     }
     void UpdateReadings(Dictionary<string,object> d){
         Snapshot=d;
+        curveEditor.Feed(d);
         if(d.ContainsKey("TargetIdentity")&&Obj(d["TargetIdentity"])!=null){var target=Obj(d["TargetIdentity"]);targetMachine="Cooling target: "+Val(target,"Manufacturer","")+" "+Val(target,"Model","")+"  |  Profile: "+Val(target,"CoolingProfile","")+"  |  "+Val(target,"IdracGeneration","")+"  |  Firmware: "+Val(target,"FirmwareRevision","");UpdateMachineLabel();}
         else if(observing){targetMachine="Cooling target: "+Val(d,"IdracHost","")+"  |  External feed (model not included)";UpdateMachineLabel();}
         var i=Obj(d["Ipmi"]);var g=Obj(d["Gpu"]);
@@ -194,7 +201,7 @@ public class FanApp : Form {
         if(g!=null&&g.ContainsKey("Warning")&&!String.IsNullOrEmpty(Convert.ToString(g["Warning"])))summary.Text+="\r\n"+Convert.ToString(g["Warning"]);
     }
     void Log(string text){messages.AppendText(DateTime.Now.ToString("HH:mm:ss")+"  "+text+Environment.NewLine);}
-    void ValidateBundle(){foreach(string file in new[]{"Controller.ps1","R730-SmartControl.ps1","GpuProviders.ps1","SystemIdentity.ps1","DellCompatibility.ps1"})if(!File.Exists(Path.Combine(root,file)))throw new Exception("Missing "+file);LoadSettings();}
+    void ValidateBundle(){foreach(string file in new[]{"Controller.ps1","R730-SmartControl.ps1","GpuProviders.ps1","SystemIdentity.ps1","DellCompatibility.ps1","HardwareDiscovery.ps1","CustomFanCurves.ps1"})if(!File.Exists(Path.Combine(root,file)))throw new Exception("Missing "+file);LoadSettings();}
     string Protect(string text){return Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(text),null,DataProtectionScope.CurrentUser));}
     string Unprotect(string text){if(String.IsNullOrEmpty(text))return "";return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(text),null,DataProtectionScope.CurrentUser));}
     void LoadSettings(){settings=json.Deserialize<Dictionary<string,object>>(File.ReadAllText(Path.Combine(profileDirectory,"settings.json")));smart.Checked=settings.ContainsKey("Smart")&&Convert.ToBoolean(settings["Smart"]);provider.SelectedItem=settings.ContainsKey("GpuProvider")?Convert.ToString(settings["GpuProvider"]):"Auto";gpuScope.SelectedIndex=settings.ContainsKey("GpuMode")&&Convert.ToString(settings["GpuMode"])=="Local"?1:settings.ContainsKey("GpuMode")&&Convert.ToString(settings["GpuMode"])=="ServerOnly"?2:0;sourceConfirmed.Checked=settings.ContainsKey("GpuSourceConfirmed")&&Convert.ToBoolean(settings["GpuSourceConfirmed"]);hostBox.Text=(string)settings["IdracHost"];trends.SetTarget(HistoryFile(hostBox.Text));powerTrends.SetTarget(HistoryFile(hostBox.Text).Replace("temperature-","power-"));userBox.Text=(string)settings["IdracUser"];bundledIpmi.Checked=BundledTools.PreferBundled(root,settings);ipmiBox.Text=bundledIpmi.Checked?BundledTools.IpmiPath(root):(string)settings["IpmiExe"];ipmiBox.Enabled=!bundledIpmi.Checked;gpuBox.Text=(string)settings["NvidiaSmi"];passBox.Text=Unprotect((string)settings["IdracPassProtected"]);nativeProfile.SelectedItem=settings.ContainsKey("NativeCoolingProfile")?Convert.ToString(settings["NativeCoolingProfile"]):settings.ContainsKey("ManagementProvider")&&Convert.ToString(settings["ManagementProvider"])=="DellRedfish"?"DellMinimum":settings.ContainsKey("ManagementProvider")&&Convert.ToString(settings["ManagementProvider"])=="HPE"?"IncreasedCooling":settings.ContainsKey("ManagementProvider")&&Convert.ToString(settings["ManagementProvider"])=="Supermicro"?"FullSpeed":"FullSpeedOverride";nativeMinimumEnabled.Checked=settings.ContainsKey("NativeMinimumEnabled")&&Convert.ToBoolean(settings["NativeMinimumEnabled"]);nativeMinimum.Value=settings.ContainsKey("NativeMinimum")?Math.Max(0,Math.Min(100,Convert.ToDecimal(settings["NativeMinimum"]))):50;}
@@ -205,12 +212,24 @@ public class FanApp : Form {
         string profileName=ProfileName;string management=IsNative?Convert.ToString(settings["ManagementProvider"]):"Dell";
         var updated=new Dictionary<string,object>{{"UseBundledIpmi",bundledIpmi.Checked},{"NativeCoolingProfile",Convert.ToString(nativeProfile.SelectedItem)},{"NativeMinimumEnabled",nativeMinimumEnabled.Checked},{"NativeMinimum",(int)nativeMinimum.Value},{"ManagementProvider",management},{"Smart",smart.Checked},{"ProfileName",profileName},{"GpuMode",gpuScope.SelectedIndex==1?"Local":gpuScope.SelectedIndex==2?"ServerOnly":"Unconfigured"},{"GpuSourceConfirmed",sourceConfirmed.Checked},{"GpuProvider",Convert.ToString(provider.SelectedItem)},{"IdracHost",hostBox.Text.Trim()},{"IdracUser",userBox.Text.Trim()},{"IpmiExe",ipmiBox.Text.Trim()},{"NvidiaSmi",gpuBox.Text.Trim()},{"IdracPassProtected",Protect(passBox.Text)}};foreach(var pair in updated)settings[pair.Key]=pair.Value;File.WriteAllText(Path.Combine(profileDirectory,"settings.json"),json.Serialize(settings));ApplyProviderUi();Log("Connection saved for this Windows user.");}catch(Exception ex){MessageBox.Show(this,ex.Message,"Save failed");}}
     static string Quote(string text){if(text.Contains("\"")||text.EndsWith("\\"))throw new Exception("Invalid launch path");return "\""+text+"\"";}
+    void SaveCurveConfiguration(bool cancelRetry=true){
+        if(IsRunning||observing)throw new Exception("Stop this profile before saving curve changes.");
+        if(IsNative)return;if(cancelRetry)CancelReconnect(false);settings=ProfileStore.Read(profileDirectory);smart.Checked=curveEditor.CaptureSettings(settings);WriteProfile(settings);if(cancelRetry){state.Text="CURVES SAVED";detail.Text="Ready for the next Start cooling; automatic reconnect is cancelled.";stop.Enabled=false;}Log("Fan mode/curves saved for the next cooling start. Original thermal safety floors remain active.");
+    }
+    void WriteProfile(Dictionary<string,object> data){string path=Path.Combine(profileDirectory,"settings.json"),temp=path+".edit-"+Guid.NewGuid().ToString("N");try{File.WriteAllText(temp,json.Serialize(data));File.Replace(temp,path,null);}finally{if(File.Exists(temp))File.Delete(temp);}}
+    void RenameProfile(){try{string name=serverNameBox.Text.Trim();ProfileStore.Validate(name,hostBox.Text);var latest=ProfileStore.Read(profileDirectory);latest["ProfileName"]=name;WriteProfile(latest);settings["ProfileName"]=name;serverNameBox.Text=name;Log("Server renamed to "+name+".");}catch(Exception ex){MessageBox.Show(this,ex.Message,"Could not rename server");}}
+    static void CurveAndNameSelfTest(){
+        FanCurveEditor.SelfTest();string dir=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Profiles","CurveNameFixture-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(dir);
+        var config=ProfileStore.Read(AppDomain.CurrentDomain.BaseDirectory);config["ProfileName"]="Before rename";config["ControlOnStartup"]=false;File.WriteAllText(Path.Combine(dir,"settings.json"),ProfileStore.Json.Serialize(config));
+        try{using(var form=new FanApp(dir)){form.serverNameBox.Text="Media R730";form.RenameProfile();var saved=ProfileStore.Read(dir);if(form.ProfileName!="Media R730"||Convert.ToString(saved["ProfileName"])!="Media R730"||Convert.ToString(saved["IdracHost"])!=Convert.ToString(config["IdracHost"])||Convert.ToString(saved["IdracPassProtected"])!=Convert.ToString(config["IdracPassProtected"]))throw new Exception("Rename changed endpoint or credentials");var tab=(TabControl)form.curveEditor.Parent.Parent;if(tab.TabPages[2].Text!="Fan curves"||tab.TabPages[3].Text!="Activity")throw new Exception("Fan curves tab order incorrect");}}finally{foreach(string file in Directory.GetFiles(dir))File.Delete(file);Directory.Delete(dir);}
+    }
     readonly ReconnectPolicy reconnect=new ReconnectPolicy();string reconnectCause="";
     void CancelReconnect(bool saveStop){reconnect.Cancel();if(saveStop&&settings!=null){settings["ControlOnStartup"]=false;try{File.WriteAllText(Path.Combine(profileDirectory,"settings.json"),json.Serialize(settings));}catch(Exception ex){Log("Could not save stopped startup preference: "+ex.Message);}}}
     void StartWorker(bool live,bool automaticRetry=false){
         if(worker!=null && !worker.HasExited)return;
         if(!automaticRetry){if(!IsNative)reconnect.Start(live);else reconnect.Cancel();}reconnect.Due=null;
         try {
+            if(live&&!automaticRetry&&!IsNative)SaveCurveConfiguration(false);
             bool selectedBundled=bundledIpmi.Checked;bool selectedSmart=smart.Checked;string selectedNative=Convert.ToString(nativeProfile.SelectedItem);bool selectedMinimum=nativeMinimumEnabled.Checked;int minimum=(int)nativeMinimum.Value;ValidateBundle();bundledIpmi.Checked=selectedBundled;if(!IsNative&&selectedBundled)BundledTools.Validate(root);settings["UseBundledIpmi"]=selectedBundled;if(IsNative){selectedSmart=false;if(!IsLocal&&(!File.Exists(Path.Combine(root,"RedfishWorker.ps1"))||!File.Exists(Path.Combine(root,"Redfish-Control.ps1"))))throw new Exception("Missing Redfish control bundle");}smart.Checked=selectedSmart;nativeProfile.SelectedItem=selectedNative;nativeMinimumEnabled.Checked=selectedMinimum;nativeMinimum.Value=minimum;settings["Smart"]=selectedSmart;settings["NativeCoolingProfile"]=selectedNative;settings["NativeMinimumEnabled"]=selectedMinimum;settings["NativeMinimum"]=minimum;settings["ControlOnStartup"]=live;File.WriteAllText(Path.Combine(profileDirectory,"settings.json"),json.Serialize(settings)); string run=DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N").Substring(0,6);
             string runs=Path.Combine(profileDirectory,"Runs");Directory.CreateDirectory(runs);
             statusFile=Path.Combine(runs,run+".json");stopFile=Path.Combine(runs,run+".stop");logFile=Path.Combine(runs,run+".log");
@@ -246,6 +265,7 @@ public class FanApp : Form {
     static string Val(Dictionary<string,object> d,string key,string suffix){return d!=null&&d.ContainsKey(key)&&d[key]!=null?Convert.ToString(d[key])+suffix:"--";}
     void RefreshState(){
         trends.Tick();powerTrends.Tick();
+        curveEditor.SetRunning(IsRunning,observing);
         if(reconnect.Due.HasValue&&worker==null){
             stop.Enabled=true;state.Text="RECONNECT WAIT";state.ForeColor=Color.Orange;
             detail.Text="Retry "+reconnect.Attempts+" in "+Math.Max(0,(int)(reconnect.Due.Value-DateTime.UtcNow).TotalSeconds)+" s. "+reconnectCause+" Fresh telemetry required; Stop cancels retries.";
@@ -258,7 +278,7 @@ public class FanApp : Form {
                 var d=json.Deserialize<Dictionary<string,object>>(raw);
                 if(observing&&(!d.ContainsKey("IdracHost")||ProfileStore.Normalize(Convert.ToString(d["IdracHost"]))!=ProfileStore.Normalize(hostBox.Text)))throw new Exception("Status feed target changed; readings rejected");
                 DateTime time=DateTime.Parse((string)d["Time"],null,System.Globalization.DateTimeStyles.RoundtripKind);
-                double seconds=Math.Max(0,(DateTime.Now-time).TotalSeconds);age.Text=(observing?"VIEW ONLY  |  ":"")+"Last update "+((int)seconds)+" s ago  |  "+(Convert.ToBoolean(d["Live"])?"LIVE CONTROL":"READ ONLY")+"  |  "+(Convert.ToBoolean(d["Smart"])?"Smart trial":"Original curves");
+                double seconds=Math.Max(0,(DateTime.Now-time).TotalSeconds);age.Text=(observing?"VIEW ONLY  |  ":"")+"Last update "+((int)seconds)+" s ago  |  "+(Convert.ToBoolean(d["Live"])?"LIVE CONTROL":"READ ONLY")+"  |  "+(Convert.ToBoolean(d["Smart"])?"Adaptive curves":d.ContainsKey("FanCurveMode")?Convert.ToString(d["FanCurveMode"])+" mode":IsNative?"Native cooling":"Original curves");
                 if(raw!=lastStatus){lastStatus=raw;string mode=(string)d["State"];if(reconnect.Wanted&&d.ContainsKey("UptimeSeconds")&&Convert.ToDouble(d["UptimeSeconds"])>=60&&(mode=="NORMAL"||mode=="GPU LOAD"||mode=="COOLDOWN"||mode=="MONITORING"))reconnect.Attempts=0;if(mode=="RESTORE FAILED")restorationFailed=true;if(!stopping){state.Text=(observing?"VIEW / ":"")+mode;detail.Text=(observing?"External controller: ":"")+(string)d["Message"];}state.ForeColor=mode.Contains("FAULT")||mode.Contains("FAILED")?Color.Salmon:Color.Turquoise;
                     UpdateReadings(d);
                 }

@@ -67,18 +67,18 @@ public static class ProfileStore {
 
 public class ServerManager : Form {
     readonly string root=AppDomain.CurrentDomain.BaseDirectory;
-    string profiles;TabControl tabs=new TabControl();List<FanApp> servers=new List<FanApp>();
+    string profiles;TabControl tabs=new BufferedTabControl();List<FanApp> servers=new List<FanApp>();
     FleetOverview fleet=new FleetOverview();
     Timer timer=new Timer();Label status=new Label();bool shuttingDown=false,exitRequested=false;NotifyIcon tray;ContextMenuStrip trayMenu;
     public ServerManager(){
         Text="Thermal Ops - Made by Chris Ramsay 2026";Icon=ThermalBrand.CreateIcon();Size=new Size(Math.Min(1280,Screen.PrimaryScreen.WorkingArea.Width-40),Math.Min(1060,Screen.PrimaryScreen.WorkingArea.Height-40));MinimumSize=new Size(1100,920);StartPosition=FormStartPosition.CenterScreen;
         BackColor=Color.FromArgb(18,23,31);ForeColor=Color.White;Font=new Font("Segoe UI",10);
         profiles=Path.Combine(root,"Profiles");ProfileStore.Migrate(root,profiles);
-        var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,Padding=new Padding(10)};
+        var layout=new BufferedTableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,Padding=new Padding(10)};
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute,82));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,27));Controls.Add(layout);
-        var toolbar=new FlowLayoutPanel{Dock=DockStyle.Fill};var add=new ReadableButton{Text="Add server",Width=150,Height=34};var remove=new ReadableButton{Text="Remove selected",Width=165,Height=34};var stop=new ReadableButton{Text="Stop all / restore auto",Width=190,Height=34};var local=new ReadableButton{Text="Local PC / controllers",Width=205,Height=34};local.Click+=(s,e)=>AddLocalProfile();toolbar.Controls.Add(add);toolbar.Controls.Add(remove);toolbar.Controls.Add(stop);toolbar.Controls.Add(local);var import=new ReadableButton{Text="Import old settings",Width=170,Height=34};import.Click+=(s,e)=>ImportProfiles();toolbar.Controls.Add(import);
+        var toolbar=new BufferedFlowLayoutPanel{Dock=DockStyle.Fill};var add=new ReadableButton{Text="Add server",Width=150,Height=34};var remove=new ReadableButton{Text="Remove selected",Width=165,Height=34};var stop=new ReadableButton{Text="Stop all / restore auto",Width=190,Height=34};var local=new ReadableButton{Text="Local PC / controllers",Width=205,Height=34};local.Click+=(s,e)=>AddLocalProfile();toolbar.Controls.Add(add);toolbar.Controls.Add(remove);toolbar.Controls.Add(stop);toolbar.Controls.Add(local);var import=new ReadableButton{Text="Import old settings",Width=170,Height=34};import.Click+=(s,e)=>ImportProfiles();toolbar.Controls.Add(import);
         var updates=new ReadableButton{Text="Check for updates",Width=165,Height=34};updates.Click+=(s,e)=>CheckForUpdates(true);toolbar.Controls.Add(updates);layout.Controls.Add(toolbar,0,0);
-        tabs.Dock=DockStyle.Fill;var all=new TabPage("All Systems"){BackColor=BackColor};all.Controls.Add(fleet);tabs.TabPages.Add(all);fleet.ServerSelected+=(index)=>{tabs.SelectedIndex=index+1;};layout.Controls.Add(tabs,0,1);status.Dock=DockStyle.Fill;status.ForeColor=Color.LightGray;layout.Controls.Add(status,0,2);
+        tabs.Dock=DockStyle.Fill;var all=new TabPage("Cluster"){BackColor=BackColor};all.Controls.Add(fleet);tabs.TabPages.Add(all);fleet.ServerSelected+=(index)=>{tabs.SelectedIndex=index+1;};layout.Controls.Add(tabs,0,1);status.Dock=DockStyle.Fill;status.ForeColor=Color.LightGray;layout.Controls.Add(status,0,2);
         foreach(string directory in Directory.GetDirectories(profiles)){try{if(File.Exists(Path.Combine(directory,"settings.json")))AddTab(directory);}catch(Exception ex){MessageBox.Show(this,"Could not load profile: "+ex.Message);}}
         add.Click+=(s,e)=>ShowAddServer();
         remove.Click+=(s,e)=>{int index=tabs.SelectedIndex-1;if(index<0)return;var server=servers[index];if(server.IsRunning){MessageBox.Show(this,"Stop this server's worker before removing its profile.");return;}if(MessageBox.Show(this,"Remove this saved profile?","Remove server",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;string file=Path.Combine(server.ProfileDirectory,"settings.json");File.Delete(file);tabs.TabPages.RemoveAt(index+1);servers.RemoveAt(index);server.Dispose();};
@@ -150,7 +150,7 @@ public class AddServerDialog : Form {
     public string ServerName{get{return name.Text;}}public string Address{get{return address.Text;}}public string Username{get{return user.Text;}}public string Password{get{return password.Text;}}
     public AddServerDialog(){
         Icon=ThermalBrand.CreateIcon();Text="Add server";Size=new Size(560,420);StartPosition=FormStartPosition.CenterParent;FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=MinimizeBox=false;Font=new Font("Segoe UI",10);
-        var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,Padding=new Padding(18)};layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,145));layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));Controls.Add(layout);
+        var layout=new BufferedTableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,Padding=new Padding(18)};layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,145));layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));Controls.Add(layout);
         string[] labels={"Server name","Management address","Username","Password"};TextBox[] boxes={name,address,user,password};user.Text="root";password.UseSystemPasswordChar=true;
         for(int i=0;i<4;i++){layout.RowStyles.Add(new RowStyle(SizeType.Absolute,43));layout.Controls.Add(new Label{Text=labels[i],AutoSize=true},0,i);boxes[i].Dock=DockStyle.Fill;layout.Controls.Add(boxes[i],1,i);}
         layout.Controls.Add(new Label{Text="Credentials are saved only in this server's profile. Dell: confirm GPU source before cooling. Other BMCs: discovered native cooling capabilities. For gaming PCs use Local PC / controllers.",AutoSize=true,MaximumSize=new Size(320,70)},1,4);

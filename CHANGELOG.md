@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.0 - Fan curve editor, cluster and hardware discovery
+
+- Remove View live feed and replace the Smart trial checkbox with a third Fan curves tab.
+- Add point-graph editing, protected manual duty, automatic detected fan/sensor lists and persisted per-server settings.
+- Add atomic server-name editing while retaining the profile identity, credentials and history.
+- Rename visible Fleet labels to Cluster and buffer graph/tab rendering; update cluster rows in place.
+- Add explicit read-only discovery with progress, sensor/device/query tabs, IPMI/Redfish and local-PC backends, and filtered public reports.
+- Record conflicting individual R730xd fan-control evidence; keep unverified per-fan writes disabled.
+- Embed the author's requested decompiler/source-reader note as a public constant.
+
 ## 1.4.1 - Dell reconnect and hardware query locators
 
 - Preserve the original exit reason alongside Dell automatic-restoration status.

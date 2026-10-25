@@ -516,7 +516,7 @@ function Test-FanResponse {
 
 function Get-ControllerExitReason([string]$Message) {
     if($Message -match 'No RPM rise|Fan\d missing or stalled|Sensor reports unhealthy'){return 'HardwareSafetyFault'}
-    if($Message -match 'Required R730 telemetry missing|Temperature sensor disappeared|GPU count changed|No GPU telemetry returned|Unexpected GPU telemetry columns|Missing or invalid telemetry number|Telemetry collection exceeded|Server identity read unavailable'){return 'TelemetryUnavailable'}
+    if($Message -match 'Custom curve sensor unavailable|Required R730 telemetry missing|Temperature sensor disappeared|GPU count changed|No GPU telemetry returned|Unexpected GPU telemetry columns|Missing or invalid telemetry number|Telemetry collection exceeded|Server identity read unavailable'){return 'TelemetryUnavailable'}
     if($Message -match '^Command timed out|^External command failed'){return 'ConnectionOrCommandFailure'}
     return 'ConfigurationOrUnexpectedFault'
 }
@@ -525,7 +525,7 @@ function Write-AppStatus {
     if (-not $StatusPath) { return }
     $data=[ordered]@{Time=(Get-Date -Format o); State=$State; Message=$Message;
         ExitReason=$ExitReason; FailureMessage=$failure; RetryAllowed=$RetryAllowed; RequestedLive=$RequestedLive;
-        HardwareDiscovery=@($Discovery);
+        HardwareDiscovery=@($Discovery);FanCurveMode=$(if($settings -and $settings.FanCurveMode){[string]$settings.FanCurveMode}elseif($Smart){'Smart'}else{'Original'});
         StopRequested=[bool]($StopPath -and (Test-Path -LiteralPath $StopPath));
         Live=[bool]$Live; ManagementProvider='Dell'; Smart=[bool]$Smart; Fan=$LastFan; Ipmi=$Ipmi; Gpu=$Gpu;
         ProfileName=$ProfileName; GpuMode=$GpuMode; TargetIdentity=$TargetIdentity; IdracHost=$IdracHost; CooldownRemaining=$CooldownRemaining; UptimeSeconds=[int]$Clock.Elapsed.TotalSeconds}
@@ -542,11 +542,14 @@ if ($Smart) { . (Join-Path $PSScriptRoot 'R730-SmartControl.ps1') }
 . (Join-Path $PSScriptRoot 'SystemIdentity.ps1')
 . (Join-Path $PSScriptRoot 'DellCompatibility.ps1')
 . (Join-Path $PSScriptRoot 'HardwareDiscovery.ps1')
+. (Join-Path $PSScriptRoot 'CustomFanCurves.ps1')
 if ($LibraryOnly) { return }
 try {
     Write-AppStatus 'Starting' 'Checking configuration and server'
     if (-not $SettingsPath) { throw 'Settings file required' }
     $settings=Get-Content -LiteralPath $SettingsPath -Raw | ConvertFrom-Json
+    try{Assert-CustomFanSettings $settings}catch{throw 'Invalid custom fan settings; check selected sensors, mode, points and percentage bounds'}
+    if($settings.FanCurveMode){$Smart=[switch]($settings.FanCurveMode -eq 'Smart');if($Smart){. (Join-Path $PSScriptRoot 'R730-SmartControl.ps1')}}
     foreach ($name in @('IpmiExe','IdracHost','IdracUser')) {
         if (-not $settings.$name) { throw "Missing setting: $name" }
         Set-Variable -Name $name -Value ([string]$settings.$name) -Scope Script
@@ -662,6 +665,7 @@ try {
         }
         $target=Get-GpuSafeTarget $Ipmi $Gpu $seconds
         if ($Smart) { $target=Get-SmartTarget $Ipmi $Gpu $seconds $target }
+        $target=Get-CustomCurveTarget $settings $Ipmi $Gpu $target
         if ($StopPath -and (Test-Path -LiteralPath $StopPath)) { break }
         if (-not $ManualAttempted) {
             # Fresh telemetry determines startup; never blindly command 15%.
@@ -680,6 +684,8 @@ try {
         $mode=if (-not $Live) {'MONITOR - NO WRITES'} elseif ($EmergencyMode) {'EMERGENCY'} elseif ($Gpu.Util -ge $GpuLoadUtilThreshold -or $Gpu.Power -ge $GpuLoadPowerThreshold) {'GPU LOAD'} elseif ($CooldownRemaining -gt 0) {'COOLDOWN'} else {'NORMAL'}
         $action=if ($Live) {'Command accepted; RPM rise monitored on increases >=10 points'} else {'Read-only: displayed command is proposed'}
         if ($Smart) { $action=$SmartReason }
+        if($settings.FanCurveMode -eq 'Custom'){$action='Custom graph demand; original thermal safety floor enforced'}
+        if($settings.FanCurveMode -eq 'Manual'){$action='Manual percentage request; original thermal safety floor enforced'}
         if ($Gpu.Warning) { $action=$Gpu.Warning }
         Write-AppStatus $mode $action $Ipmi $Gpu
         Write-Dashboard $Ipmi $Gpu $LastFan $mode $action $CooldownRemaining 'None'

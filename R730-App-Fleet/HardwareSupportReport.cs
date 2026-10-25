@@ -50,14 +50,23 @@ public static class HardwareSupportReport {
         return text.ToString();
     }
     static bool SafeLocator(string path){return path.Length<=160&&Regex.IsMatch(path,@"^/(redfish/v1/|intelcpu/|amdcpu/|gpu-nvidia/|gpu-amd/|gpu-intel/|lpc/|motherboard/|controller/)[A-Za-z0-9_./#-]+$")&&!path.Contains("..")&&!Regex.IsMatch(path,@"(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");}
-    public static void Show(IWin32Window owner,Dictionary<string,object> snapshot){
+    public static string CreateWithProbe(Dictionary<string,object> snapshot,Dictionary<string,object> probe){
+        if(snapshot==null||Map(Value(snapshot,"TargetIdentity"))==null)snapshot=new Dictionary<string,object>{{"TargetIdentity",Value(probe,"TargetIdentity")??new Dictionary<string,object>()},{"ManagementProvider","Read-only discovery"}};
+        var text=new StringBuilder(Create(snapshot));text.AppendLine("\r\n## Explicit read-only discovery\r\n");
+        var checks=Value(probe,"Checks") as IEnumerable;int count=0;if(checks!=null)foreach(var item in checks){if(count++>=64)break;var row=Map(item);text.AppendLine(Clean(Value(row,"Backend"),"")+" | "+Clean(Value(row,"Query"),"")+" | "+Clean(Value(row,"Result"),""));}
+        text.AppendLine("\r\nDetected sensors/devices (identifiers omitted unless recognised query paths):");
+        var rows=Value(probe,"Rows") as IEnumerable;count=0;if(rows!=null)foreach(var item in rows){if(count++>=512){text.AppendLine("[truncated]");break;}var row=Map(item);string id=Convert.ToString(Value(row,"Identifier"));if(!SafeLocator(id)&&!Regex.IsMatch(id,@"^PCI VEN_[0-9A-Fa-f]{4}&DEV_[0-9A-Fa-f]{4}$")&&!Regex.IsMatch(id,@"^0x[0-9A-Fa-f]{2} / entity \d{1,3}\.\d{1,3}$"))id="[identifier omitted]";text.AppendLine(Clean(Value(row,"Backend"),"")+" | "+Clean(Value(row,"Kind"),"")+" | "+Clean(Value(row,"Name"),"")+" | "+Clean(id,"")+" | "+Clean(Value(row,"Value"),"",Convert.ToString(Value(row,"Kind"))=="Identity"&&Convert.ToString(Value(row,"Name")).StartsWith("Firmware"))+" "+Clean(Value(row,"Units"),"")+" | "+Clean(Value(row,"Access"),""));}
+        text.AppendLine("No cooling writes were sent. Driver-exposed channels have not been exercised. Missing readings do not prove hardware is unsupported.");return text.ToString();
+    }
+    public static void Show(IWin32Window owner,Dictionary<string,object> snapshot,string profileDirectory=null,Func<Dictionary<string,object>> currentSnapshot=null){
         try{
-            string content=Create(snapshot);
+            string content=snapshot==null?"Run read-only discovery to collect hardware information, or start Monitor only for a live snapshot.":Create(snapshot);
             using(var dialog=new Form{Text="Hardware support request",Size=new Size(850,650),StartPosition=FormStartPosition.CenterParent}){
                 var body=new TextBox{Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Both,Dock=DockStyle.Fill,Font=new Font("Consolas",10),Text=content,WordWrap=false};
                 var buttons=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=48};
                 var copy=new Button{Text="Copy report",Width=140,Height=32};copy.Click+=(s,e)=>{Clipboard.SetText(content);copy.Text="Copied";};
                 var issue=new Button{Text="Open GitHub issue",Width=165,Height=32};issue.Click+=(s,e)=>{try{Process.Start(new ProcessStartInfo("https://github.com/Shifteh-187/Thermal-Ops/issues/new?template=hardware-support.md"){UseShellExecute=true});}catch(Exception ex){MessageBox.Show(dialog,ex.Message,"Could not open browser");}};
+                if(profileDirectory!=null){var discover=new Button{Text="Run read-only discovery",Width=200,Height=32};discover.Click+=(s,e)=>{using(var probe=new HardwareDiscoveryDialog(profileDirectory,currentSnapshot??(()=>snapshot))){if(probe.ShowDialog(dialog)==DialogResult.OK&&!String.IsNullOrEmpty(probe.PublicReport)){content=probe.PublicReport;body.Text=content;copy.Text="Copy report";}}};buttons.Controls.Add(discover);}
                 buttons.Controls.Add(copy);buttons.Controls.Add(issue);dialog.Controls.Add(body);dialog.Controls.Add(buttons);dialog.ShowDialog(owner);
             }
         }catch(Exception ex){MessageBox.Show(owner,ex.Message,"Hardware support report");}
@@ -70,5 +79,7 @@ public static class HardwareSupportReport {
         snapshot["HardwareDiscovery"]=new object[]{new Dictionary<string,object>{{"Kind","IPMI SDR"},{"Name","Temp"},{"SensorNumber","0x0E"},{"EntityId","3.1"}},new Dictionary<string,object>{{"Kind","Redfish GET"},{"Path","/redfish/v1/Chassis/System.Embedded.1/Thermal"}},new Dictionary<string,object>{{"Kind","Redfish GET"},{"Path","https://private-server.example/SECRET-PATH"}},new Dictionary<string,object>{{"Kind","IPMI SDR"},{"SensorNumber","SECRET-NUMBER"},{"EntityId","3.1"}}};
         report=Create(snapshot);if(!report.Contains("sensor=0x0E")||!report.Contains("entity=3.1")||!report.Contains("/redfish/v1/Chassis/System.Embedded.1/Thermal")||report.Contains("SECRET-"))throw new Exception("Discovery locator validation/privacy failed");
         bool rejected=false;try{Create(null);}catch{rejected=true;}if(!rejected)throw new Exception("Report accepted missing identity");
+        var probe=new Dictionary<string,object>{{"Rows",new object[]{new Dictionary<string,object>{{"Backend","Windows"},{"Kind","Device"},{"Name","GPU"},{"Identifier","PCI VEN_10DE&DEV_2504"},{"Value","NVIDIA"},{"Password","SECRET-PROBE"}},new Dictionary<string,object>{{"Backend","Local"},{"Kind","Control"},{"Name","Case fan"},{"Identifier","/controller/0/control/0"},{"Access","Driver exposes control; writes not tested"}},new Dictionary<string,object>{{"Backend","Local"},{"Kind","Sensor"},{"Name","Storage"},{"Identifier","/hdd/SECRET-SERIAL/temperature/0"}}}}};
+        report=CreateWithProbe(snapshot,probe);if(report.Contains("SECRET-")||!report.Contains("PCI VEN_10DE&DEV_2504")||!report.Contains("writes not tested"))throw new Exception("Explicit probe report filtering failed");
     }
 }
