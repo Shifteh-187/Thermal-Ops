@@ -60,7 +60,7 @@ public static class HardwareSupportReport {
     }
     public static void Show(IWin32Window owner,Dictionary<string,object> snapshot,string profileDirectory=null,Func<Dictionary<string,object>> currentSnapshot=null){
         try{
-            string content=snapshot==null?"Run read-only discovery to collect hardware information, or start Monitor only for a live snapshot.":Create(snapshot);
+            string content=SnapshotOrGuide(snapshot);
             using(var dialog=new Form{Text="Hardware support request",Size=new Size(850,650),StartPosition=FormStartPosition.CenterParent}){
                 var body=new TextBox{Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Both,Dock=DockStyle.Fill,Font=new Font("Consolas",10),Text=content,WordWrap=false};
                 var buttons=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=48};
@@ -71,6 +71,7 @@ public static class HardwareSupportReport {
             }
         }catch(Exception ex){MessageBox.Show(owner,ex.Message,"Hardware support report");}
     }
+    static string SnapshotOrGuide(Dictionary<string,object> snapshot){return snapshot==null||Map(Value(snapshot,"TargetIdentity"))==null?"Run read-only discovery to collect hardware information, or start Monitor only for a live snapshot.":Create(snapshot);}
     public static void SelfTest(){
         var privateFields=new Dictionary<string,object>{{"Manufacturer","Dell Inc."},{"Model","PowerEdge R740"},{"FirmwareRevision","7.00.00.00"},{"SerialNumber","SECRET-SERVICE-TAG"},{"Password","SECRET-PASSWORD"}};
         var snapshot=new Dictionary<string,object>{{"TargetIdentity",privateFields},{"IdracHost","private-server.example"},{"IdracPassProtected","SECRET-BLOB"},{"Message","SECRET-LOG"},{"Gpu",new Dictionary<string,object>{{"Id","SECRET-GPU"}}}};
@@ -81,5 +82,6 @@ public static class HardwareSupportReport {
         bool rejected=false;try{Create(null);}catch{rejected=true;}if(!rejected)throw new Exception("Report accepted missing identity");
         var probe=new Dictionary<string,object>{{"Rows",new object[]{new Dictionary<string,object>{{"Backend","Windows"},{"Kind","Device"},{"Name","GPU"},{"Identifier","PCI VEN_10DE&DEV_2504"},{"Value","NVIDIA"},{"Password","SECRET-PROBE"}},new Dictionary<string,object>{{"Backend","Local"},{"Kind","Control"},{"Name","Case fan"},{"Identifier","/controller/0/control/0"},{"Access","Driver exposes control; writes not tested"}},new Dictionary<string,object>{{"Backend","Local"},{"Kind","Sensor"},{"Name","Storage"},{"Identifier","/hdd/SECRET-SERIAL/temperature/0"}}}}};
         report=CreateWithProbe(snapshot,probe);if(report.Contains("SECRET-")||!report.Contains("PCI VEN_10DE&DEV_2504")||!report.Contains("writes not tested"))throw new Exception("Explicit probe report filtering failed");
+        if(!SnapshotOrGuide(new Dictionary<string,object>{{"TargetIdentity",null}}).Contains("Run read-only discovery")||!CreateWithProbe(null,probe).Contains("Explicit read-only discovery"))throw new Exception("Unknown/partial system blocked discovery workflow");
     }
 }
