@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.1 - Dell reconnect and hardware query locators
+
+- Preserve the original exit reason alongside Dell automatic-restoration status.
+- Retry owned Dell IPMI telemetry/command failures with a capped delay; Stop, Exit and upgrade shutdown cancel retries.
+- Require three complete samples before takeover and retain a pending Dell restoration marker on unsuccessful recovery.
+- Keep fan stall/response, identity, ownership and configuration faults stopped for review.
+- Add IPMI SDR sensor number/entity ID discovery, successfully read Redfish paths and available local sensor identifiers to support reports.
+- Show the actual app version, sensor units/status and report unavailable discovery explicitly.
+
 ## 1.4.0 - GitHub updater
 
 - Startup update check with tray opt-out, plus dashboard/tray manual checks.

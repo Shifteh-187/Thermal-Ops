@@ -81,6 +81,7 @@ public class FanApp : Form {
         if(args.Length>0&&args[0]=="--fleet-test"){try{FleetReading.SelfTest();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"fleet-test.txt"),"PASS: fresh/partial/stale/wrong-target power, GPU sums, missing telemetry and power-range validation.");}catch(Exception ex){File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"fleet-test.txt"),"FAIL: "+ex.Message);Environment.Exit(1);}return;}
         if(args.Length>0&&args[0]=="--tray-test"){try{ServerManager.TraySelfTest();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"tray-test.txt"),"PASS: tray menu, X hides, dashboard restores, explicit exit disposes.");}catch(Exception ex){File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"tray-test.txt"),"FAIL: "+ex.Message);Environment.Exit(1);}return;}
         if(args.Length>0&&args[0]=="--shutdown-test"){try{var now=DateTime.UtcNow;var data=new Dictionary<string,object>{{"Time",now.ToString("o")},{"State","Stopped"},{"Message","Dell automatic control command accepted"}};if(!CoolingShutdownDialog.Accepted(data,now))throw new Exception("Restore acknowledgement rejected");data["State"]="RESTORE FAILED";if(CoolingShutdownDialog.Accepted(data,now))throw new Exception("Failure accepted");data["State"]="Stopped";data["Time"]=now.AddMinutes(-2).ToString("o");if(CoolingShutdownDialog.Accepted(data,now))throw new Exception("Old acknowledgement accepted");data["Time"]=now.ToString("o");data["Message"]="Unknown exit";if(CoolingShutdownDialog.Accepted(data,now))throw new Exception("Unknown exit accepted");foreach(string acknowledgement in new[]{"Original native cooling settings verified","Hardware default restore command accepted"}){data["Message"]=acknowledgement;if(!CoolingShutdownDialog.Accepted(data,now))throw new Exception("Native/local acknowledgement rejected");}File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"shutdown-test.txt"),"PASS: restore acknowledgement, failed restore, stale status and unknown exit.");}catch(Exception ex){File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"shutdown-test.txt"),"FAIL: "+ex.Message);Environment.Exit(1);}return;}
+        if(args.Length>0&&args[0]=="--reconnect-test"){ReconnectPolicy.SelfTest();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"reconnect-test.txt"),"PASS: retry intent, backoff, cancellation, fault latches and unknown crash rejection.");return;}
         var manager=new ServerManager();
         if(args.Length>1&&args[0]=="--observe")manager.Shown+=(sender,eventArgs)=>manager.ObserveExisting(args[1]);
         if(args.Length>1&&args[0]=="--resume-profile")manager.Shown+=(sender,eventArgs)=>manager.StartProfile(args[1]);
@@ -204,8 +205,11 @@ public class FanApp : Form {
         string profileName=ProfileName;string management=IsNative?Convert.ToString(settings["ManagementProvider"]):"Dell";
         var updated=new Dictionary<string,object>{{"UseBundledIpmi",bundledIpmi.Checked},{"NativeCoolingProfile",Convert.ToString(nativeProfile.SelectedItem)},{"NativeMinimumEnabled",nativeMinimumEnabled.Checked},{"NativeMinimum",(int)nativeMinimum.Value},{"ManagementProvider",management},{"Smart",smart.Checked},{"ProfileName",profileName},{"GpuMode",gpuScope.SelectedIndex==1?"Local":gpuScope.SelectedIndex==2?"ServerOnly":"Unconfigured"},{"GpuSourceConfirmed",sourceConfirmed.Checked},{"GpuProvider",Convert.ToString(provider.SelectedItem)},{"IdracHost",hostBox.Text.Trim()},{"IdracUser",userBox.Text.Trim()},{"IpmiExe",ipmiBox.Text.Trim()},{"NvidiaSmi",gpuBox.Text.Trim()},{"IdracPassProtected",Protect(passBox.Text)}};foreach(var pair in updated)settings[pair.Key]=pair.Value;File.WriteAllText(Path.Combine(profileDirectory,"settings.json"),json.Serialize(settings));ApplyProviderUi();Log("Connection saved for this Windows user.");}catch(Exception ex){MessageBox.Show(this,ex.Message,"Save failed");}}
     static string Quote(string text){if(text.Contains("\"")||text.EndsWith("\\"))throw new Exception("Invalid launch path");return "\""+text+"\"";}
-    void StartWorker(bool live){
+    readonly ReconnectPolicy reconnect=new ReconnectPolicy();string reconnectCause="";
+    void CancelReconnect(bool saveStop){reconnect.Cancel();if(saveStop&&settings!=null){settings["ControlOnStartup"]=false;try{File.WriteAllText(Path.Combine(profileDirectory,"settings.json"),json.Serialize(settings));}catch(Exception ex){Log("Could not save stopped startup preference: "+ex.Message);}}}
+    void StartWorker(bool live,bool automaticRetry=false){
         if(worker!=null && !worker.HasExited)return;
+        if(!automaticRetry){if(!IsNative)reconnect.Start(live);else reconnect.Cancel();}reconnect.Due=null;
         try {
             bool selectedBundled=bundledIpmi.Checked;bool selectedSmart=smart.Checked;string selectedNative=Convert.ToString(nativeProfile.SelectedItem);bool selectedMinimum=nativeMinimumEnabled.Checked;int minimum=(int)nativeMinimum.Value;ValidateBundle();bundledIpmi.Checked=selectedBundled;if(!IsNative&&selectedBundled)BundledTools.Validate(root);settings["UseBundledIpmi"]=selectedBundled;if(IsNative){selectedSmart=false;if(!IsLocal&&(!File.Exists(Path.Combine(root,"RedfishWorker.ps1"))||!File.Exists(Path.Combine(root,"Redfish-Control.ps1"))))throw new Exception("Missing Redfish control bundle");}smart.Checked=selectedSmart;nativeProfile.SelectedItem=selectedNative;nativeMinimumEnabled.Checked=selectedMinimum;nativeMinimum.Value=minimum;settings["Smart"]=selectedSmart;settings["NativeCoolingProfile"]=selectedNative;settings["NativeMinimumEnabled"]=selectedMinimum;settings["NativeMinimum"]=minimum;settings["ControlOnStartup"]=live;File.WriteAllText(Path.Combine(profileDirectory,"settings.json"),json.Serialize(settings)); string run=DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N").Substring(0,6);
             string runs=Path.Combine(profileDirectory,"Runs");Directory.CreateDirectory(runs);
@@ -220,10 +224,11 @@ public class FanApp : Form {
             gpus.Rows.Clear();foreach(var label in values)label.Text="--";fans.Rows.Clear();
             state.Text=live?"STARTING COOLING":"STARTING READ-ONLY MONITOR";detail.Text="Checking server identity and telemetry before any takeover.";
             Log(live?"Cooling worker started. Safety checks precede manual mode.":"Read-only monitor started. No fan writes.");
-        }catch(Exception ex){if(worker!=null){worker.Dispose();worker=null;}Log(ex.Message);MessageBox.Show(this,ex.Message,"Cannot start");}
+        }catch(Exception ex){reconnect.Cancel();if(worker!=null){worker.Dispose();worker=null;}Log(ex.Message);if(!automaticRetry)MessageBox.Show(this,ex.Message,"Cannot start");}
     }
     void CaptureLine(string line){if(line==null)return;lock(gate){output.AppendLine(line);if(output.Length>120000)output.Remove(0,40000);}try{lock(gate)File.AppendAllText(logFile,line+Environment.NewLine);}catch{}}
     public string BeginSafeShutdown(){
+        CancelReconnect(false);
         if(!IsRunning&&(restorationFailed||File.Exists(Path.Combine(profileDirectory,"Cooling-Recovery.json"))))throw new Exception("Cooling restoration needs attention. Restart this profile monitor to retry native recovery before exiting.");
         if(!IsRunning&&!observing){string feed=FeedDiscovery.Find(root,profileDirectory,hostBox.Text);if(feed!=null)ObserveExisting(feed);}
         if(!IsRunning&&!observing)return null;
@@ -234,13 +239,18 @@ public class FanApp : Form {
         if(!String.Equals(Path.GetDirectoryName(Path.GetFullPath(target)),Path.GetDirectoryName(Path.GetFullPath(statusFile)),StringComparison.OrdinalIgnoreCase)||Path.GetExtension(statusFile)!=".json")throw new Exception("Invalid controller stop path");
         File.WriteAllText(target,"stop");return statusFile;
     }
-    void RequestStop(){if(observing){observing=false;stop.Text="Stop / Dell auto";stop.Enabled=false;monitor.Enabled=control.Enabled=save.Enabled=smart.Enabled=provider.Enabled=gpuScope.Enabled=sourceConfirmed.Enabled=bundledIpmi.Enabled=nativeProfile.Enabled=nativeMinimum.Enabled=nativeMinimumEnabled.Enabled=true;foreach(var field in new[]{hostBox,userBox,passBox,ipmiBox,gpuBox})field.Enabled=true;state.Text="VIEW STOPPED";detail.Text="External controller continues independently.";Log("Stopped viewing. External cooling was not changed.");ApplyProviderUi();return;}if(worker==null||worker.HasExited)return;try{File.WriteAllText(stopFile,"stop");stopping=true;stop.Enabled=false;state.Text="STOPPING";detail.Text="Waiting for the current request, then restoring Dell control if needed.";Log("Graceful stop requested; worker is not forcibly terminated.");}catch(Exception ex){Log("Stop request failed: "+ex.Message);}}
+    void RequestStop(){CancelReconnect(true);if(worker==null&&!observing){stop.Enabled=false;state.Text="STOPPED BY USER";detail.Text="Automatic reconnect cancelled.";}if(observing){observing=false;stop.Text="Stop / Dell auto";stop.Enabled=false;monitor.Enabled=control.Enabled=save.Enabled=smart.Enabled=provider.Enabled=gpuScope.Enabled=sourceConfirmed.Enabled=bundledIpmi.Enabled=nativeProfile.Enabled=nativeMinimum.Enabled=nativeMinimumEnabled.Enabled=true;foreach(var field in new[]{hostBox,userBox,passBox,ipmiBox,gpuBox})field.Enabled=true;state.Text="VIEW STOPPED";detail.Text="External controller continues independently.";Log("Stopped viewing. External cooling was not changed.");ApplyProviderUi();return;}if(worker==null||worker.HasExited)return;try{File.WriteAllText(stopFile,"stop");stopping=true;stop.Enabled=false;state.Text="STOPPING";detail.Text="Waiting for the current request, then restoring Dell control if needed.";Log("Graceful stop requested; worker is not forcibly terminated.");}catch(Exception ex){Log("Stop request failed: "+ex.Message);}}
     static double? Number(Dictionary<string,object> d,string key){if(d==null||!d.ContainsKey(key)||d[key]==null)return null;try{double n=Convert.ToDouble(d[key],System.Globalization.CultureInfo.InvariantCulture);return Double.IsNaN(n)||Double.IsInfinity(n)?(double?)null:n;}catch{return null;}}
     string HistoryFile(string address){using(var hash=SHA256.Create()){string key=BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(ProfileStore.Normalize(address)))).Replace("-","").Substring(0,16);return Path.Combine(profileDirectory,"temperature-"+key+".jsonl");}}
     static Dictionary<string,object> Obj(object x){return x as Dictionary<string,object>;}
     static string Val(Dictionary<string,object> d,string key,string suffix){return d!=null&&d.ContainsKey(key)&&d[key]!=null?Convert.ToString(d[key])+suffix:"--";}
     void RefreshState(){
         trends.Tick();powerTrends.Tick();
+        if(reconnect.Due.HasValue&&worker==null){
+            stop.Enabled=true;state.Text="RECONNECT WAIT";state.ForeColor=Color.Orange;
+            detail.Text="Retry "+reconnect.Attempts+" in "+Math.Max(0,(int)(reconnect.Due.Value-DateTime.UtcNow).TotalSeconds)+" s. "+reconnectCause+" Fresh telemetry required; Stop cancels retries.";
+            if(DateTime.UtcNow>=reconnect.Due.Value)StartWorker(reconnect.Live,true);
+        }
         if(worker==null&&!observing)return;
         try{
             if(File.Exists(statusFile)){
@@ -249,7 +259,7 @@ public class FanApp : Form {
                 if(observing&&(!d.ContainsKey("IdracHost")||ProfileStore.Normalize(Convert.ToString(d["IdracHost"]))!=ProfileStore.Normalize(hostBox.Text)))throw new Exception("Status feed target changed; readings rejected");
                 DateTime time=DateTime.Parse((string)d["Time"],null,System.Globalization.DateTimeStyles.RoundtripKind);
                 double seconds=Math.Max(0,(DateTime.Now-time).TotalSeconds);age.Text=(observing?"VIEW ONLY  |  ":"")+"Last update "+((int)seconds)+" s ago  |  "+(Convert.ToBoolean(d["Live"])?"LIVE CONTROL":"READ ONLY")+"  |  "+(Convert.ToBoolean(d["Smart"])?"Smart trial":"Original curves");
-                if(raw!=lastStatus){lastStatus=raw;string mode=(string)d["State"];if(mode=="RESTORE FAILED")restorationFailed=true;if(!stopping){state.Text=(observing?"VIEW / ":"")+mode;detail.Text=(observing?"External controller: ":"")+(string)d["Message"];}state.ForeColor=mode.Contains("FAULT")||mode.Contains("FAILED")?Color.Salmon:Color.Turquoise;
+                if(raw!=lastStatus){lastStatus=raw;string mode=(string)d["State"];if(reconnect.Wanted&&d.ContainsKey("UptimeSeconds")&&Convert.ToDouble(d["UptimeSeconds"])>=60&&(mode=="NORMAL"||mode=="GPU LOAD"||mode=="COOLDOWN"||mode=="MONITORING"))reconnect.Attempts=0;if(mode=="RESTORE FAILED")restorationFailed=true;if(!stopping){state.Text=(observing?"VIEW / ":"")+mode;detail.Text=(observing?"External controller: ":"")+(string)d["Message"];}state.ForeColor=mode.Contains("FAULT")||mode.Contains("FAILED")?Color.Salmon:Color.Turquoise;
                     UpdateReadings(d);
                 }
                 if(seconds>45&&(observing||(worker!=null&&!worker.HasExited))&&!stopping){state.Text="WAITING / READINGS STALE";state.ForeColor=Color.Orange;}
@@ -257,11 +267,16 @@ public class FanApp : Form {
         }catch(Exception ex){age.Text="Waiting for complete status: "+ex.Message;}
         if(worker!=null&&worker.HasExited){
             worker.WaitForExit();int code=worker.ExitCode;Log("Worker exited ("+code+"). "+detail.Text);
+            Dictionary<string,object> exitStatus=null;try{exitStatus=json.Deserialize<Dictionary<string,object>>(File.ReadAllText(statusFile));}catch{}
+            if(exitStatus!=null&&exitStatus.ContainsKey("ExitReason")){string reason=Convert.ToString(exitStatus["ExitReason"]);string failure=exitStatus.ContainsKey("FailureMessage")?Convert.ToString(exitStatus["FailureMessage"]):"";Log("Exit reason: "+reason+". "+failure);reconnectCause=reason+": "+failure;detail.Text="Exit: "+reason+". "+failure;}
+            bool retry=!stopping&&!closing&&!IsNative&&reconnect.Schedule(exitStatus,DateTime.UtcNow);
+            if(!retry)reconnect.Cancel();
             if(stopping){stopping=false;try{var final=json.Deserialize<Dictionary<string,object>>(File.ReadAllText(statusFile));state.Text=(string)final["State"];detail.Text=(string)final["Message"];}catch{state.Text="STOPPED - CHECK ACTIVITY";}}
             if(code!=0){state.Text="STOPPED - CHECK ACTIVITY";state.ForeColor=Color.Salmon;}
             worker.Dispose();worker=null;monitor.Enabled=control.Enabled=smart.Enabled=save.Enabled=provider.Enabled=gpuScope.Enabled=sourceConfirmed.Enabled=bundledIpmi.Enabled=nativeProfile.Enabled=nativeMinimum.Enabled=nativeMinimumEnabled.Enabled=true;stop.Enabled=false;
             foreach(var t in new[]{hostBox,userBox,passBox,ipmiBox,gpuBox})t.Enabled=true;
             ApplyProviderUi();if(closing){if(state.Text.Contains("FAILED")){closing=false;MessageBox.Show(this,detail.Text,"Cooling restoration needs attention");}else Close();}
+            if(retry){stop.Enabled=true;state.Text="RECONNECT WAIT";Log("Automatic reconnect scheduled; attempt "+reconnect.Attempts+". Stop cancels it.");}
         }
     }
     void OnClosing(object sender,FormClosingEventArgs e){if(worker!=null&&!worker.HasExited){e.Cancel=true;closing=true;RequestStop();}}

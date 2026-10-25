@@ -324,6 +324,13 @@ $RefreshSeconds = 30
 $ResponseTimeoutSeconds = 30
 $Clock = [Diagnostics.Stopwatch]::StartNew()
 $ManualAttempted = $false
+$RequestedLive=[bool]$Live
+$failure=$null
+$ExitReason='Running'
+$RetryAllowed=$false
+$preflight=0
+$DellRecoveryPath=$null
+$Discovery=@()
 $LastWriteTime = -1000.0
 $LowerSince = $null
 $ResponseCheck = $null
@@ -403,7 +410,7 @@ function Convert-IpmiTelemetry {
         if ($p.Count -gt 3 -and $p[3].Trim() -notin @('ok','ns')) {
             throw "Sensor reports unhealthy status: $name"
         }
-        $sensor = [pscustomobject]@{Name=$name; Value=$n}
+        $sensor = [pscustomobject]@{Name=$name; Value=$n;Units=$unit;Status=$(if($p.Count -gt 3){$p[3].Trim()}else{'Unknown'})}
         switch ($unit) {
             'degrees C' { $temps += $sensor }
             'RPM' { $fans += $sensor }
@@ -423,7 +430,7 @@ function Convert-IpmiTelemetry {
     $system=@($temps | Where-Object { $_.Name -notin @('Temp','Inlet Temp','Exhaust Temp') })
     $hot=$system | Sort-Object Value -Descending | Select-Object -First 1
     [pscustomobject]@{
-        Temps=$temps; Fans=$fans; Watts=$watts; CpuTemps=$cpu
+        Temps=$temps; Fans=$fans; Watts=$watts; CpuTemps=$cpu;ReportedHealth='TELEMETRY OK'
         CpuMax=($cpu | Measure-Object Value -Maximum).Maximum
         Inlet=$inlet[0].Value; Exhaust=$exhaust[0].Value
         SystemTemps=$system; SystemMax=$(if ($hot) {$hot.Value} else {$null})
@@ -507,10 +514,19 @@ function Test-FanResponse {
 }
 
 
+function Get-ControllerExitReason([string]$Message) {
+    if($Message -match 'No RPM rise|Fan\d missing or stalled|Sensor reports unhealthy'){return 'HardwareSafetyFault'}
+    if($Message -match 'Required R730 telemetry missing|Temperature sensor disappeared|GPU count changed|No GPU telemetry returned|Unexpected GPU telemetry columns|Missing or invalid telemetry number|Telemetry collection exceeded|Server identity read unavailable'){return 'TelemetryUnavailable'}
+    if($Message -match '^Command timed out|^External command failed'){return 'ConnectionOrCommandFailure'}
+    return 'ConfigurationOrUnexpectedFault'
+}
 function Write-AppStatus {
     param([string]$State, [string]$Message, $Ipmi=$null, $Gpu=$null)
     if (-not $StatusPath) { return }
     $data=[ordered]@{Time=(Get-Date -Format o); State=$State; Message=$Message;
+        ExitReason=$ExitReason; FailureMessage=$failure; RetryAllowed=$RetryAllowed; RequestedLive=$RequestedLive;
+        HardwareDiscovery=@($Discovery);
+        StopRequested=[bool]($StopPath -and (Test-Path -LiteralPath $StopPath));
         Live=[bool]$Live; ManagementProvider='Dell'; Smart=[bool]$Smart; Fan=$LastFan; Ipmi=$Ipmi; Gpu=$Gpu;
         ProfileName=$ProfileName; GpuMode=$GpuMode; TargetIdentity=$TargetIdentity; IdracHost=$IdracHost; CooldownRemaining=$CooldownRemaining; UptimeSeconds=[int]$Clock.Elapsed.TotalSeconds}
     $json=$data | ConvertTo-Json -Depth 8 -Compress
@@ -525,6 +541,7 @@ if ($Smart) { . (Join-Path $PSScriptRoot 'R730-SmartControl.ps1') }
 . (Join-Path $PSScriptRoot 'GpuProviders.ps1')
 . (Join-Path $PSScriptRoot 'SystemIdentity.ps1')
 . (Join-Path $PSScriptRoot 'DellCompatibility.ps1')
+. (Join-Path $PSScriptRoot 'HardwareDiscovery.ps1')
 if ($LibraryOnly) { return }
 try {
     Write-AppStatus 'Starting' 'Checking configuration and server'
@@ -567,6 +584,7 @@ try {
     } catch { $model='' } finally { $CommandTimeoutSeconds=$routineTimeout }
     $TargetIdentity=Convert-TargetIdentity $model
     $mcInfo='';try{$mcInfo=Invoke-Ipmi @('mc','info')}catch{}
+    if($RequestedLive -and (-not $model -or -not $mcInfo)){throw 'Server identity read unavailable; retry discovery before cooling'}
     $compatibility=Get-DellCompatibility $TargetIdentity $mcInfo
     foreach($property in $compatibility.PSObject.Properties){$TargetIdentity | Add-Member -NotePropertyName $property.Name -NotePropertyValue $property.Value -Force}
     if(-not $compatibility.ManualControlAllowed){$Live=[switch]$false;$Smart=[switch]$false;$TargetIdentity.CoolingProfile='Monitoring only'}
@@ -596,6 +614,16 @@ try {
             throw 'Local GPU telemetry does not match this server identity. Remote chassis-cooled GPUs need an on-server controller; server-only mode requires no chassis-cooled GPUs.'
         }
     }
+    $DellRecoveryPath=Join-Path (Split-Path -Parent $SettingsPath) 'Dell-Auto-Recovery.pending'
+    if($Live -and (Test-Path -LiteralPath $DellRecoveryPath)){
+        # After a failed restoration or interrupted worker, return to auto first.
+        $recovery=Get-Content -LiteralPath $DellRecoveryPath -Raw | ConvertFrom-Json
+        if($recovery.Host -ne $IdracHost -or $recovery.Serial -ne $targetSerial){throw 'Pending Dell recovery target does not match hardware identity'}
+        Set-AutoFanMode
+        Remove-Item -LiteralPath $DellRecoveryPath -ErrorAction Stop
+    }
+    # One bounded read-only inventory query per worker session; never guess raw control bytes.
+    try{$Discovery=@(Convert-SdrLocators (Invoke-Ipmi @('sdr','elist','all')))}catch{$Discovery=@()}
     $MonitorLocalGpu=$false
     if(-not $Live){
         $Smart=[switch]$false
@@ -628,13 +656,17 @@ try {
         if ($seconds-$sampleStart -gt $TelemetryBudgetSeconds) { throw 'Telemetry collection exceeded freshness budget' }
         Assert-SensorInventory $Ipmi $Gpu
         Test-FanResponse $Ipmi $seconds
+        if(-not $ManualAttempted -and $Live){
+            $preflight++
+            if($preflight -lt 3){Write-AppStatus 'VALIDATING' ('Complete telemetry sample '+$preflight+'/3 before takeover') $Ipmi $Gpu;Start-Sleep -Seconds $PollSeconds;continue}
+        }
         $target=Get-GpuSafeTarget $Ipmi $Gpu $seconds
         if ($Smart) { $target=Get-SmartTarget $Ipmi $Gpu $seconds $target }
         if ($StopPath -and (Test-Path -LiteralPath $StopPath)) { break }
-        if ($iteration -eq 0) {
+        if (-not $ManualAttempted) {
             # Fresh telemetry determines startup; never blindly command 15%.
             $target=[math]::Max($FailSafeFan,$target)
-            if ($Live) { $ManualAttempted=$true; Set-ManualFanMode }
+            if ($Live) { [IO.File]::WriteAllText($DellRecoveryPath,(@{Host=$IdracHost;Serial=$targetSerial}|ConvertTo-Json -Compress));$ManualAttempted=$true; Set-ManualFanMode }
         }
         $target=Get-SmoothedTarget $target $LastFan $seconds
         if ($target -ne $LastFan -or $seconds-$LastWriteTime -ge $RefreshSeconds) {
@@ -661,6 +693,8 @@ try {
     }
 } catch {
     $failure=$_.Exception.Message
+    $ExitReason=Get-ControllerExitReason $failure
+    $RetryAllowed=$ExitReason -in @('TelemetryUnavailable','ConnectionOrCommandFailure')
     Write-AppStatus 'FAULT' $failure
     if ($ManualAttempted) {
         # Never lower an emergency/high command on telemetry failure.
@@ -669,13 +703,15 @@ try {
     Write-Warning "Controller stopped: $failure"
     throw
 } finally {
+    if(-not $failure){$ExitReason=if($StopPath -and (Test-Path -LiteralPath $StopPath)){'UserStop'}else{'Completed'}}
+    if($StopPath -and (Test-Path -LiteralPath $StopPath)){$RetryAllowed=$false}
     if ($ManualAttempted) {
         Write-AppStatus 'Restoring' 'Returning control to Dell automatic cooling'
         $restored=$false
         foreach ($attempt in 1..3) {
             try { Set-AutoFanMode; $restored=$true; break } catch { Write-Warning "Automatic mode restore attempt $attempt failed." }
         }
-        if ($restored) { Write-AppStatus 'Stopped' 'Dell automatic control command accepted'; Write-Host 'Dell automatic fan control command accepted.' }
+        if ($restored) { if($DellRecoveryPath -and (Test-Path -LiteralPath $DellRecoveryPath)){Remove-Item -LiteralPath $DellRecoveryPath -ErrorAction SilentlyContinue};Write-AppStatus 'Stopped' 'Dell automatic control command accepted'; Write-Host 'Dell automatic fan control command accepted.' }
         else { Write-AppStatus 'RESTORE FAILED' 'Restore Dell cooling manually NOW'; Write-Warning 'AUTOMATIC RESTORE FAILED. Check iDRAC and restore cooling control manually NOW.' }
     }
     if (-not $ManualAttempted -and -not $failure) { Write-AppStatus 'Stopped' 'Read-only monitor stopped' }

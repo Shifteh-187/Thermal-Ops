@@ -34,9 +34,13 @@ See [hardware support](R730-App-Fleet/HARDWARE-SUPPORT.md), [HPE support](R730-A
 
 The GUI stores separate server credentials protected for the current Windows user. Closing the window hides it in the tray. Use **Exit** to stop controllers and request restoration of automatic cooling. Configure startup behaviour only after verifying your sensors and cooling response.
 
+## Automatic reconnection and exit reasons
+
+Version 1.4.1 reconnects owned Dell IPMI workers after temporary command or telemetry failures, with a capped retry delay and three complete readings before takeover. Stop/Exit cancel retries. Hardware safety faults stay stopped for review. [Exit reasons and recovery behaviour](docs/RECOVERY.md).
+
 ## Hardware support requests
 
-For an unsupported system, start **Monitor only**, wait for detection, and click **Hardware support request**. Review the report, choose **Copy report**, then **Open GitHub issue** and paste it into the template. The report includes model, firmware, sensor inventory and exposed cooling capabilities. It excludes credentials, IP addresses, hostnames, service tags, GPU identifiers and raw logs. Nothing is posted automatically and no fan-control probe is issued.
+For an unsupported system, start **Monitor only**, wait for detection, and click **Hardware support request**. Review the report, choose **Copy report**, then **Open GitHub issue** and paste it into the template. The report includes model, firmware, sensor inventory, read-only IPMI SDR sensor numbers/entity IDs, available local sensor identifiers, successfully read Redfish resource paths and exposed cooling capabilities. These are query locators, not fan-write commands. It excludes credentials, IP addresses, hostnames, service tags, GPU identifiers and raw logs. Nothing is posted automatically and no fan-control probe is issued.
 
 See [iDRAC compatibility](R730-App-Fleet/IDRAC-COMPATIBILITY.md) for version research, support limits and the evidence needed to add another control profile.
 
@@ -72,7 +76,7 @@ Requires Windows, .NET Framework 4.7.2 or newer, Windows PowerShell 5.1 and Inno
 .\Installer\Build.ps1 -InnoCompiler 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
 
-Output: `Dist/Thermal-Ops-Setup-1.4.0.exe`. The dependency archive includes upstream binaries, licence notices and required corresponding source archives. LibreHardwareMonitor 0.9.6 comes from its official GitHub release; PawnIO 2.1.0 is its bundled driver installer. The Windows ipmitool 1.8.19 build is distributed by Danny Nieuwenhuis, with provenance and hashes in `Installer/Payload/Tools/IPMI`. The optional PawnIO driver requires a separate installation with administrator approval.
+Output: `Dist/Thermal-Ops-Setup-1.4.1.exe`. The dependency archive includes upstream binaries, licence notices and required corresponding source archives. LibreHardwareMonitor 0.9.6 comes from its official GitHub release; PawnIO 2.1.0 is its bundled driver installer. The Windows ipmitool 1.8.19 build is distributed by Danny Nieuwenhuis, with provenance and hashes in `Installer/Payload/Tools/IPMI`. The optional PawnIO driver requires a separate installation with administrator approval.
 
 ## Licence
 

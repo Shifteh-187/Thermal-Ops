@@ -7,8 +7,10 @@ $config=Get-Content -LiteralPath $SettingsPath -Raw | ConvertFrom-Json
 $origin=[Uri]('https://'+$config.IdracHost+'/');$watch=[Diagnostics.Stopwatch]::StartNew()
 $headers=@{};$identity=$null;$mutex=$null;$owned=$false;$restoring=$false;$pending=$null;$failure=$false;$physicalMutex=$null;$physicalOwned=$false
 $recoveryPath=Join-Path (Split-Path $SettingsPath) 'Cooling-Recovery.json'
+$DiscoveryResources=New-Object Collections.Generic.List[object]
 function Write-Status([string]$State,[string]$Message,$Telemetry=$null) {
-    $data=@{Time=(Get-Date -Format o);State=$State;Message=$Message;Live=[bool]$Live;Smart=$false;Fan=-1;Ipmi=$Telemetry;Gpu=$null;ManagementProvider='Redfish';TargetIdentity=$identity;IdracHost=$config.IdracHost;ProfileName=$config.ProfileName;CooldownRemaining=0;UptimeSeconds=[int]$watch.Elapsed.TotalSeconds}
+    if($system -and $system.SerialNumber){foreach($entry in $DiscoveryResources){$entry.Path=$entry.Path.Replace([string]$system.SerialNumber,'[service-tag removed]')}}
+    $data=@{HardwareDiscovery=@($DiscoveryResources.ToArray());Time=(Get-Date -Format o);State=$State;Message=$Message;Live=[bool]$Live;Smart=$false;Fan=-1;Ipmi=$Telemetry;Gpu=$null;ManagementProvider='Redfish';TargetIdentity=$identity;IdracHost=$config.IdracHost;ProfileName=$config.ProfileName;CooldownRemaining=0;UptimeSeconds=[int]$watch.Elapsed.TotalSeconds}
     [IO.File]::WriteAllText($StatusPath+'.tmp',($data | ConvertTo-Json -Depth 12 -Compress));Move-Item -LiteralPath ($StatusPath+'.tmp') -Destination $StatusPath -Force
 }
 function Resource-Uri([string]$Path) {
@@ -19,7 +21,12 @@ function Resource-Uri([string]$Path) {
 function Get-Resource([string]$Path) {
     if (-not $restoring -and (Test-Path -LiteralPath $StopPath)) {throw 'Stop requested'}
     $response=Invoke-WebRequest -Uri (Resource-Uri $Path) -Headers $headers -Method Get -UseBasicParsing -TimeoutSec 15 -MaximumRedirection 0
-    return ($response.Content | ConvertFrom-Json)
+    $result=$response.Content | ConvertFrom-Json
+    $locator=([Uri](Resource-Uri $Path)).AbsolutePath
+    if($system -and $system.SerialNumber){$locator=$locator.Replace([string]$system.SerialNumber,'[service-tag removed]')}
+    $locator=[regex]::Replace($locator,'(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}','[UUID removed]')
+    if($DiscoveryResources.Count -lt 128 -and $locator -notin @($DiscoveryResources|ForEach-Object{$_.Path})){$DiscoveryResources.Add(@{Kind='Redfish GET';Path=$locator})}
+    return $result
 }
 function Set-NativeValues($Record,$Values) {
     if($Record.Serial -and [string](Get-Resource $systemPath).SerialNumber -ne [string]$Record.Serial){throw "Hardware serial mismatch before cooling write"}

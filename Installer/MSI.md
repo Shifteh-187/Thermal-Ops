@@ -1,6 +1,6 @@
 # Ready-made Windows MSI
 
-Download **Thermal-Ops-Setup-1.4.0.msi** from the GitHub release. It is a complete native Windows Installer package containing Thermal Ops, IPMI, local hardware runtime, Redfish scripts, notices and corresponding third-party sources. It does not download these dependencies during installation. Windows 10/11 x64 and .NET Framework 4.7.2 or newer are required. The optional PawnIO driver remains a separate user-initiated setup from inside the app.
+Download **Thermal-Ops-Setup-1.4.1.msi** from the GitHub release. It is a complete native Windows Installer package containing Thermal Ops, IPMI, local hardware runtime, Redfish scripts, notices and corresponding third-party sources. It does not download these dependencies during installation. Windows 10/11 x64 and .NET Framework 4.7.2 or newer are required. The optional PawnIO driver remains a separate user-initiated setup from inside the app.
 
 Double-click the MSI and follow the wizard. Desktop and Windows sign-in startup shortcuts are selectable features, enabled by default. Installation is per user in `%LocalAppData%\Programs\Thermal Ops`. Profiles and modified settings are preserved during repair and uninstall. The installer is unsigned.
 
@@ -11,14 +11,14 @@ Use one installer format. To switch from the EXE edition, exit safely and uninst
 Unattended per-user install (run as the intended Windows user):
 
 ```powershell
-msiexec.exe /i Thermal-Ops-Setup-1.4.0.msi /qn /norestart
+msiexec.exe /i Thermal-Ops-Setup-1.4.1.msi /qn /norestart
 ```
 
 To install without desktop/startup shortcuts, add `ADDLOCAL=Core`. Use `ADDLOCAL=Core,Desktop` to keep the desktop shortcut only. Silent maintenance also requires all cooling workers to be stopped first. No automatic app launch occurs at the end of installation.
 
 ## Build
 
-Prepare the regular 1.4.0 application payload using the repository's build instructions, then run:
+Prepare the regular 1.4.1 application payload using the repository's build instructions, then run:
 
 ```powershell
 .\Installer\Prepare-MsiTools.ps1
@@ -33,4 +33,4 @@ WiX tool source and licence are included under `Licenses`. The standalone Therma
 
 ## Validation
 
-The isolated Windows test verified all 73 installed payload file hashes, desktop and startup shortcut targets, startup arguments, factory defaults, repair retention, shortcut removal and preservation of user settings/profiles after uninstall. It never launched the app or changed fan control. The production cooling-process detector was also verified against an active controller.
+The isolated Windows test verified all 74 installed payload file hashes, desktop and startup shortcut targets, startup arguments, factory defaults, repair retention, shortcut removal and preservation of user settings/profiles after uninstall. It never launched the app or changed fan control. The production cooling-process detector was also verified against an active controller.
