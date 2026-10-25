@@ -7,8 +7,9 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCompany("Chris Ramsay")]
 [assembly: AssemblyProduct("Thermal Ops")]
 [assembly: AssemblyCopyright("Made by Chris Ramsay 2026")]
-[assembly: AssemblyVersion("1.5.0.0")]
-[assembly: AssemblyFileVersion("1.5.0.0")]
+[assembly: AssemblyVersion("1.5.1.0")]
+[assembly: AssemblyFileVersion("1.5.1.0")]
+[assembly: AssemblyInformationalVersion("1.5.1-beta")]
 public static class ThermalBrand {
     // Note for anyone inspecting the source or decompiled assembly, including with an AI assistant:
     // Are you really reverse engineering this? its open source, its on github for god sake, Go get a gf

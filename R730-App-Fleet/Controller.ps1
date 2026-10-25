@@ -334,6 +334,8 @@ $Discovery=@()
 $LastWriteTime = -1000.0
 $LowerSince = $null
 $ResponseCheck = $null
+$LastFanChangeTime=-1000.0
+$FanResponseNotice='Awaiting stable fan command; requested duty is not measured PWM'
 $ExpectedTemps = @{}
 $ExpectedGpuCount = 0
 $Mutex = $null
@@ -505,17 +507,36 @@ function Assert-SensorInventory {
 function Test-FanResponse {
     param($Ipmi,[double]$Seconds)
     if ($null -eq $ResponseCheck -or -not $Live) { return }
+    if($ResponseCheck.PSObject.Properties['Target'] -and $LastFan -ne $ResponseCheck.Target){$script:ResponseCheck=$null;$script:FanResponseNotice='RPM test cancelled: requested duty changed';return}
     if ($Seconds-$ResponseCheck.Time -lt $ResponseTimeoutSeconds) { return }
+    $falling=$false
     foreach ($before in $ResponseCheck.Fans) {
-        $after=$Ipmi.Fans | Where-Object Name -eq $before.Name
-        if ($after.Value -lt $before.Value*1.05) { throw "No RPM rise after substantial fan increase: $($before.Name)" }
+        $after=@($Ipmi.Fans | Where-Object Name -eq $before.Name)
+        if($after.Count -ne 1 -or $after[0].Value -le 0){throw "Fan$($before.Name -replace '\D','') missing or stalled"}
+        if($after[0].Value -lt $before.Value*0.80){
+            $falling=$true;if(-not $ResponseCheck.DropCounts.ContainsKey($before.Name)){$ResponseCheck.DropCounts[$before.Name]=0};$ResponseCheck.DropCounts[$before.Name]++
+            if($ResponseCheck.DropCounts[$before.Name] -ge 3){throw "Fan RPM fell substantially after a stable fan increase: $($before.Name)"}
+        }else{$ResponseCheck.DropCounts[$before.Name]=0}
     }
+    if($falling){$script:FanResponseNotice='Checking sustained RPM drop; healthy positive fan readings still required';return}
+    $noRise=@($ResponseCheck.Fans|Where-Object{$name=$_.Name;$current=@($Ipmi.Fans|Where-Object Name -eq $name);$current[0].Value -lt $_.Value*1.05})
+    $script:FanResponseNotice=if($noRise.Count){'RPM rise unconfirmed: fans may already be fast or limited by firmware; positive RPM and health remain monitored'}else{'RPM increase observed after stable command increase'}
     $script:ResponseCheck=$null
+}
+function Register-FanResponseCommand($Ipmi,[int]$Target,[int]$Previous,[double]$Seconds) {
+    if($Target -eq $Previous){return}
+    # A pending test describes one sustained increase, never a later decrease/retarget.
+    $script:ResponseCheck=$null
+    if($Live -and $Previous -ge 0 -and $Target-$Previous -ge 10 -and $Seconds -ge 90 -and $Seconds-$LastFanChangeTime -ge $ResponseTimeoutSeconds){
+        $script:ResponseCheck=[pscustomobject]@{Time=$Seconds;Target=$Target;DropCounts=@{};Fans=@($Ipmi.Fans|ForEach-Object{[pscustomobject]@{Name=$_.Name;Value=$_.Value}})}
+        $script:FanResponseNotice='Checking RPM after sustained fan increase'
+    }else{$script:FanResponseNotice='RPM monitored; rise test waits for a settled command and startup grace'}
+    $script:LastFanChangeTime=$Seconds
 }
 
 
 function Get-ControllerExitReason([string]$Message) {
-    if($Message -match 'No RPM rise|Fan\d missing or stalled|Sensor reports unhealthy'){return 'HardwareSafetyFault'}
+    if($Message -match 'No RPM rise|Fan RPM fell substantially|Fan\d missing or stalled|Sensor reports unhealthy'){return 'HardwareSafetyFault'}
     if($Message -match 'Custom curve sensor unavailable|Required R730 telemetry missing|Temperature sensor disappeared|GPU count changed|No GPU telemetry returned|Unexpected GPU telemetry columns|Missing or invalid telemetry number|Telemetry collection exceeded|Server identity read unavailable'){return 'TelemetryUnavailable'}
     if($Message -match '^Command timed out|^External command failed'){return 'ConnectionOrCommandFailure'}
     return 'ConfigurationOrUnexpectedFault'
@@ -526,6 +547,7 @@ function Write-AppStatus {
     $data=[ordered]@{Time=(Get-Date -Format o); State=$State; Message=$Message;
         ExitReason=$ExitReason; FailureMessage=$failure; RetryAllowed=$RetryAllowed; RequestedLive=$RequestedLive;
         HardwareDiscovery=@($Discovery);FanCurveMode=$(if($settings -and $settings.FanCurveMode){[string]$settings.FanCurveMode}elseif($Smart){'Smart'}else{'Original'});
+        FanResponse=$FanResponseNotice;
         StopRequested=[bool]($StopPath -and (Test-Path -LiteralPath $StopPath));
         Live=[bool]$Live; ManagementProvider='Dell'; Smart=[bool]$Smart; Fan=$LastFan; Ipmi=$Ipmi; Gpu=$Gpu;
         ProfileName=$ProfileName; GpuMode=$GpuMode; TargetIdentity=$TargetIdentity; IdracHost=$IdracHost; CooldownRemaining=$CooldownRemaining; UptimeSeconds=[int]$Clock.Elapsed.TotalSeconds}
@@ -675,18 +697,17 @@ try {
         $target=Get-SmoothedTarget $target $LastFan $seconds
         if ($target -ne $LastFan -or $seconds-$LastWriteTime -ge $RefreshSeconds) {
             Set-FanPercent $target
-            if ($LastFan -ge 0 -and $target-$LastFan -ge 10 -and $null -eq $ResponseCheck) {
-                $ResponseCheck=[pscustomobject]@{Time=$seconds; Fans=$Ipmi.Fans}
-            }
+            Register-FanResponseCommand $Ipmi $target $LastFan $seconds
             $LastFan=$target
             $LastWriteTime=$seconds
         }
         $mode=if (-not $Live) {'MONITOR - NO WRITES'} elseif ($EmergencyMode) {'EMERGENCY'} elseif ($Gpu.Util -ge $GpuLoadUtilThreshold -or $Gpu.Power -ge $GpuLoadPowerThreshold) {'GPU LOAD'} elseif ($CooldownRemaining -gt 0) {'COOLDOWN'} else {'NORMAL'}
-        $action=if ($Live) {'Command accepted; RPM rise monitored on increases >=10 points'} else {'Read-only: displayed command is proposed'}
+        $action=if ($Live) {'Command accepted; '+$FanResponseNotice} else {'Read-only: displayed command is proposed'}
         if ($Smart) { $action=$SmartReason }
         if($settings.FanCurveMode -eq 'Custom'){$action='Custom graph demand; original thermal safety floor enforced'}
         if($settings.FanCurveMode -eq 'Manual'){$action='Manual percentage request; original thermal safety floor enforced'}
         if ($Gpu.Warning) { $action=$Gpu.Warning }
+        if($Live -and $FanResponseNotice -like 'RPM rise unconfirmed*' -and $action -notlike '*RPM rise unconfirmed*'){$action+=' | '+$FanResponseNotice}
         Write-AppStatus $mode $action $Ipmi $Gpu
         Write-Dashboard $Ipmi $Gpu $LastFan $mode $action $CooldownRemaining 'None'
         # Keep polling during startup; no blind settle sleep.

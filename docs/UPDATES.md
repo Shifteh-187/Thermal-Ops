@@ -17,3 +17,9 @@ Install 1.4.0 manually once to get this feature. Future release publishing shoul
 Run `Installer/Test-AppUpdates.ps1` for version/asset/format/integrity rejection fixtures, and `Installer/Test-UpdateHandoff.ps1` for a dummy installer handoff that verifies the parent exits first. The handoff fixture substitutes worker discovery only in the test build; the production helper includes the real process guard.
 
 The 1.4.0 build also passed UI/bundle/tray and shutdown-acknowledgement checks, a real GitHub MSI download with digest verification, isolated MSI install/repair/uninstall tests, and a 1.3.0-to-1.4.0 MSI major upgrade preserving settings and the installation path. No production installer or fan-control write was executed by these checks.
+
+## BETA releases
+
+1.5.1 is flagged as a GitHub prerelease. The tray menu offers **Include BETA updates**, off by default. Opting in reads the public release list and selects the highest eligible numeric version, including prereleases; drafts are always excluded. Update prompts label prereleases BETA. Stable-only checks keep the latest-stable endpoint.
+
+Versions before 1.5.1 cannot discover beta releases, so obtain this first beta directly from its release page. Numeric release tags and installer names remain vX.Y.Z; the GitHub prerelease flag and informational build version carry the beta status. Increment the numeric version for subsequent beta or stable builds.

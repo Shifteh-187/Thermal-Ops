@@ -22,6 +22,10 @@ public static class UpdateTests {
         }
         Assert(AppUpdates.Parse(Json("v1.10.0","msi",hash,null,100,false,false),current,"msi").Version.Minor==10,"numeric versions");
         Assert(AppUpdates.Parse(Json("v1.5.0","msi",hash,null,100,false,false),current,null).Name==null,"portable release only");
+        string list="["+Json("v1.5.1","msi",hash,null,100,true,false)+","+Json("v1.5.0","msi",hash,null,100,false,false)+","+Json("v9.0.0","msi",hash,null,100,true,true)+"]";
+        Assert(AppUpdates.ParseChannel(list,current,"msi",false).Version==new Version(1,5,0,0),"stable channel excludes beta");
+        var beta=AppUpdates.ParseChannel(list,current,"msi",true);Assert(beta.Version==new Version(1,5,1,0)&&beta.IsBeta,"opt-in beta channel selects flagged prerelease");
+        Assert(AppUpdates.ParseChannel(list,new Version(1,5,1,0),"msi",true)==null,"beta channel avoids same version/draft");
         Reject(()=>AppUpdates.Parse(Json("v1.5.0","exe",hash,null,100,false,false),current,"msi"),"wrong format");
         Reject(()=>AppUpdates.Parse(Json("v1.5.0","msi",null,null,100,false,false),current,"msi"),"missing digest");
         Reject(()=>AppUpdates.Parse(Json("v1.5.0","msi","sha256:no",null,100,false,false),current,"msi"),"bad digest");

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.1 BETA - selector and high-RPM response fixes
+
+- Keep selector popup menus alive until their owning control is disposed; fix the selection-time ContextMenuStrip exception.
+- Cancel RPM tests when fan duty is retargeted; wait for startup grace and a settled prior command.
+- Report flat positive RPM as unconfirmed response rather than a hardware failure. Keep missing/stalled/unhealthy fan checks and debounce substantial RPM falls.
+- Label the project/build BETA, publish a GitHub prerelease and add an explicit Include BETA updates tray option.
+
 ## 1.5.0 - Fan curve editor, cluster and hardware discovery
 
 - Remove View live feed and replace the Smart trial checkbox with a third Fan curves tab.

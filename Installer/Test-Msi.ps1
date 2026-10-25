@@ -1,7 +1,7 @@
 param([Parameter(Mandatory=$true)][string]$TestDirectory)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot
-$msi=Join-Path $root 'Dist\Thermal-Ops-MSI-Test-1.5.0.msi'
+$msi=Join-Path $root 'Dist\Thermal-Ops-MSI-Test-1.5.1.msi'
 if(-not(Test-Path -LiteralPath $msi)){throw 'Build-Msi.ps1 -Smoke must run first'}
 if(Test-Path -LiteralPath $TestDirectory){throw 'Use a new, empty test directory'}
 New-Item -ItemType Directory -Path $TestDirectory|Out-Null

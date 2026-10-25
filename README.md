@@ -1,4 +1,6 @@
-# Thermal Ops
+# Thermal Ops (BETA)
+
+> **BETA** - active development. Hardware/firmware support varies. [Download the 1.5.1 BETA hotfix](https://github.com/Shifteh-187/Thermal-Ops/releases/tag/v1.5.1).
 
 Made by **Chris Ramsay, 2026**. Windows cooling control and monitoring with a dark dashboard, live temperature trends, individual server power graphs, cluster health and total power usage.
 
@@ -84,7 +86,7 @@ Requires Windows, .NET Framework 4.7.2 or newer, Windows PowerShell 5.1 and Inno
 
 For an MSI-only build, use `Build.ps1 -AppOnly` to prepare the payload without Inno Setup, then follow [MSI build instructions](Installer/MSI.md).
 
-Output: `Dist/Thermal-Ops-Setup-1.5.0.exe`. The dependency archive includes upstream binaries, licence notices and required corresponding source archives. LibreHardwareMonitor 0.9.6 comes from its official GitHub release; PawnIO 2.1.0 is its bundled driver installer. The Windows ipmitool 1.8.19 build is distributed by Danny Nieuwenhuis, with provenance and hashes in `Installer/Payload/Tools/IPMI`. The optional PawnIO driver requires a separate installation with administrator approval.
+Output: `Dist/Thermal-Ops-Setup-1.5.1.exe`. The dependency archive includes upstream binaries, licence notices and required corresponding source archives. LibreHardwareMonitor 0.9.6 comes from its official GitHub release; PawnIO 2.1.0 is its bundled driver installer. The Windows ipmitool 1.8.19 build is distributed by Danny Nieuwenhuis, with provenance and hashes in `Installer/Payload/Tools/IPMI`. The optional PawnIO driver requires a separate installation with administrator approval.
 
 ## Licence
 

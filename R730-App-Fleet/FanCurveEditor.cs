@@ -94,7 +94,7 @@ public sealed class FanCurveEditor : UserControl {
     }
     static object Get(Dictionary<string,object> d,string key){return d!=null&&d.ContainsKey(key)?d[key]:null;}
     public static void SelfTest(){
-        FanCurveModel.SelfTest();using(var editor=new FanCurveEditor()){
+        ReadableSelector.SelfTest();FanCurveModel.SelfTest();using(var editor=new FanCurveEditor()){
             var config=new Dictionary<string,object>{{"Smart",true}};editor.LoadConfig(config,false);if(editor.mode.SelectedIndex!=1)throw new Exception("Legacy smart mode lost");
             var snapshot=new Dictionary<string,object>{{"Ipmi",new Dictionary<string,object>{{"CpuMax",50},{"Exhaust",35},{"Inlet",23},{"Temps",new object[]{new Dictionary<string,object>{{"Name","Temp"},{"Value",49}},new Dictionary<string,object>{{"Name","Temp"},{"Value",50}}}},{"Fans",new object[]{new Dictionary<string,object>{{"Name","Fan1"},{"Value",8400}},new Dictionary<string,object>{{"Name","Fan2"},{"Value",8400}}}}}}};
             editor.Feed(snapshot);if(editor.fanList.Rows.Count!=2||editor.source.Items.Count!=5||!Convert.ToString(editor.fanList.Rows[0].Cells[2].Value).Contains("Shared"))throw new Exception("Detected fan/sensor population failed");

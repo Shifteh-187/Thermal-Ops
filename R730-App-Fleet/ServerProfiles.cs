@@ -71,7 +71,7 @@ public class ServerManager : Form {
     FleetOverview fleet=new FleetOverview();
     Timer timer=new Timer();Label status=new Label();bool shuttingDown=false,exitRequested=false;NotifyIcon tray;ContextMenuStrip trayMenu;
     public ServerManager(){
-        Text="Thermal Ops - Made by Chris Ramsay 2026";Icon=ThermalBrand.CreateIcon();Size=new Size(Math.Min(1280,Screen.PrimaryScreen.WorkingArea.Width-40),Math.Min(1060,Screen.PrimaryScreen.WorkingArea.Height-40));MinimumSize=new Size(1100,920);StartPosition=FormStartPosition.CenterScreen;
+        Text="Thermal Ops"+(AppUpdates.BetaBuild?" BETA":"")+" - Made by Chris Ramsay 2026";Icon=ThermalBrand.CreateIcon();Size=new Size(Math.Min(1280,Screen.PrimaryScreen.WorkingArea.Width-40),Math.Min(1060,Screen.PrimaryScreen.WorkingArea.Height-40));MinimumSize=new Size(1100,920);StartPosition=FormStartPosition.CenterScreen;
         BackColor=Color.FromArgb(18,23,31);ForeColor=Color.White;Font=new Font("Segoe UI",10);
         profiles=Path.Combine(root,"Profiles");ProfileStore.Migrate(root,profiles);
         var layout=new BufferedTableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,Padding=new Padding(10)};
@@ -94,6 +94,7 @@ public class ServerManager : Form {
             trayMenu.Items.Add("Dashboard",null,(s,e)=>ShowDashboard());trayMenu.Items.Add("Add server",null,(s,e)=>{ShowDashboard();ShowAddServer();});trayMenu.Items.Add("Local PC / controllers",null,(s,e)=>{ShowDashboard();AddLocalProfile();});trayMenu.Items.Add(new ToolStripSeparator());trayMenu.Items.Add("Exit / restore defaults",null,(s,e)=>BeginExit());
             trayMenu.Items.Insert(trayMenu.Items.Count-2,new ToolStripMenuItem("Check for updates",null,(s,e)=>CheckForUpdates(true)));
             var autoUpdates=new ToolStripMenuItem("Check for updates at startup"){CheckOnClick=true,Checked=AppUpdates.CheckOnStartup};autoUpdates.CheckedChanged+=(s,e)=>AppUpdates.CheckOnStartup=autoUpdates.Checked;trayMenu.Items.Insert(trayMenu.Items.Count-2,autoUpdates);
+            var betaUpdates=new ToolStripMenuItem("Include BETA updates"){CheckOnClick=true,Checked=AppUpdates.IncludeBeta};betaUpdates.CheckedChanged+=(s,e)=>AppUpdates.IncludeBeta=betaUpdates.Checked;trayMenu.Items.Insert(trayMenu.Items.Count-2,betaUpdates);
             tray=new NotifyIcon{Text="Thermal Ops",Icon=ThermalBrand.CreateIcon(),ContextMenuStrip=trayMenu,Visible=true};tray.DoubleClick+=(s,e)=>ShowDashboard();
         }
         Shown+=(s,e)=>{if(!FanApp.PreviewMode && AppUpdates.CheckOnStartup && (Environment.GetCommandLineArgs().Length==1 || Array.IndexOf(Environment.GetCommandLineArgs(),"--startup")>=0))CheckForUpdates(false);};
@@ -111,7 +112,7 @@ public class ServerManager : Form {
             if(update==null){if(manual)MessageBox.Show(this,"You are up to date ("+AppUpdates.Current.ToString(3)+").","Thermal Ops updates");return;}
             ShowDashboard();
             if(kind==null){if(MessageBox.Show(this,"Version "+update.Version.ToString(3)+" is available. This is a portable or unrecognised installation. Open the download page?","Thermal Ops updates",MessageBoxButtons.YesNo)==DialogResult.Yes)System.Diagnostics.Process.Start(AppUpdates.Releases);return;}
-            if(MessageBox.Show(this,"Thermal Ops "+update.Version.ToString(3)+" is available. Installed: "+AppUpdates.Current.ToString(3)+".\n\nDownload the "+kind.ToUpperInvariant()+" update? Cooling continues during download. You will then confirm safe shutdown before setup opens.\n\nRelease notes: "+AppUpdates.Releases,"Update available",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
+            if(MessageBox.Show(this,"Thermal Ops "+update.Version.ToString(3)+(update.IsBeta?" BETA":"")+" is available. Installed: "+AppUpdates.Current.ToString(3)+".\n\nDownload the "+kind.ToUpperInvariant()+" update? Cooling continues during download. You will then confirm safe shutdown before setup opens.\n\nRelease notes: "+AppUpdates.Releases,"Update available",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
             manual=true;
             status.Text="Downloading and verifying Thermal Ops update...";
             string installer=await System.Threading.Tasks.Task.Run(()=>AppUpdates.Download(update));
